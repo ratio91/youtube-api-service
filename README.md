@@ -91,10 +91,13 @@ No authentication required. Returns service status and authorization state.
 }
 ```
 
-### Get Authorization URL
+### OAuth Endpoints
+
+**Get Authorization URL**
 ```bash
 GET /auth/url
 ```
+
 Returns the OAuth authorization URL for first-time setup.
 
 **Response:**
@@ -105,7 +108,7 @@ Returns the OAuth authorization URL for first-time setup.
 }
 ```
 
-### Complete Authorization
+**Complete Authorization**
 ```bash
 POST /auth/callback
 Content-Type: application/json
@@ -123,18 +126,56 @@ Content-Type: application/json
 }
 ```
 
-### Fetch Watch Later Videos
+### List Your Playlists
 ```bash
-GET /videos
+GET /playlists
 Authorization: Basic base64(username:password)
 ```
 
-Returns all videos from your Watch Later playlist with metadata.
+Returns all playlists in your YouTube channel.
 
 **Response:**
 ```json
 {
-  "count": 623,
+  "count": 15,
+  "playlists": [
+    {
+      "id": "PLxxxxxxxxxxxxxxxxxxxxxx",
+      "title": "My Playlist",
+      "description": "Playlist description",
+      "itemCount": 42,
+      "publishedAt": "2025-11-29T14:24:16Z"
+    },
+    {
+      "id": "PLyyyyyyyyyyyyyyyyyyyyyy",
+      "title": "Another Playlist",
+      "description": "",
+      "itemCount": 28,
+      "publishedAt": "2021-09-14T14:38:03Z"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000Z"
+}
+```
+
+### Fetch Specific Playlist
+```bash
+GET /playlist/:playlistId
+Authorization: Basic base64(username:password)
+```
+
+Returns all videos from a specific playlist.
+
+**Example:**
+```bash
+curl -u username:password https://youtube-api.yourdomain.com/playlist/PLxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Response:**
+```json
+{
+  "playlistId": "PLxxxxxxxxxxxxxxxxxxxxxx",
+  "count": 42,
   "videos": [
     {
       "videoId": "dQw4w9WgXcQ",
@@ -156,6 +197,19 @@ Returns all videos from your Watch Later playlist with metadata.
 ```
 
 **Duration format:** ISO 8601 (e.g., "PT15M30S" = 15 minutes 30 seconds)
+
+### Fetch Videos (with optional playlist parameter)
+```bash
+GET /videos?playlistId=PLAYLIST_ID
+Authorization: Basic base64(username:password)
+```
+
+Returns videos from the specified playlist. If no `playlistId` is provided, returns videos from your default playlist (configure in code).
+
+**Example:**
+```bash
+curl -u username:password "https://youtube-api.yourdomain.com/videos?playlistId=PLxxxxxxxxxxxxxxxxxxxxxx"
+```
 
 ### Get Single Transcript
 ```bash
@@ -217,23 +271,47 @@ Returns transcripts for multiple videos. If a transcript fails to fetch, it will
 }
 ```
 
+## Important Notes
+
+### Watch Later Limitation
+**YouTube deprecated API access to Watch Later playlists in September 2016.** The special playlist ID 'WL' returns empty results for all users. This is a YouTube API limitation, not a bug in this service.
+
+**Workarounds:**
+1. Use the `/playlists` endpoint to list your available playlists
+2. Use any of your public or private playlists
+3. Create a dedicated playlist for videos you want to process
+
+See: [YouTube API Revision History](https://developers.google.com/youtube/v3/revision_history#september-15-2016)
+
 ## Usage with n8n
 
-### Example: Fetch Videos Workflow
+### Example: List Available Playlists
 
 1. **HTTP Request Node**
    - Method: GET
-   - URL: `https://youtube-api.yourdomain.com/videos`
+   - URL: `https://youtube-api.yourdomain.com/playlists`
+   - Authentication: Basic Auth
+   - Credentials: Use your BASIC_AUTH_USER and BASIC_AUTH_PASS
+
+2. **Process Playlists**
+   - The response contains all your playlists with their IDs
+   - Use n8n's built-in functions to filter or select the playlist you want
+
+### Example: Fetch Videos from Specific Playlist
+
+1. **HTTP Request Node**
+   - Method: GET
+   - URL: `https://youtube-api.yourdomain.com/playlist/YOUR_PLAYLIST_ID`
    - Authentication: Basic Auth
    - Credentials: Use your BASIC_AUTH_USER and BASIC_AUTH_PASS
 
 2. **Process Videos**
-   - The response will contain all your Watch Later videos
+   - The response will contain all videos from that playlist
    - Use n8n's built-in functions to filter, transform, or store the data
 
 ### Example: Get Transcripts Workflow
 
-1. **HTTP Request Node** - Fetch videos
+1. **HTTP Request Node** - Fetch playlist videos
 2. **Function Node** - Extract video IDs (limit to batches of 10-20 to avoid timeouts)
 3. **HTTP Request Node**
    - Method: POST
@@ -243,11 +321,14 @@ Returns transcripts for multiple videos. If a transcript fails to fetch, it will
 4. **Process transcripts** - Send to LLM for summarization, store in DB, create notes, etc.
 
 ### Example: Complete Processing Pipeline
-
 ```
 [Schedule Trigger - Daily]
     ↓
-[HTTP: Fetch Videos]
+[HTTP: List Playlists]
+    ↓
+[Filter: Select target playlist]
+    ↓
+[HTTP: Fetch Videos from Playlist]
     ↓
 [Filter: New videos only]
     ↓
@@ -257,8 +338,15 @@ Returns transcripts for multiple videos. If a transcript fails to fetch, it will
     ↓
 [Store in Database]
     ↓
-[Create Notes]
+[Create Obsidian/Evernote Notes]
 ```
+
+### Tips for n8n Workflows
+
+- Store your playlist IDs in n8n environment variables for easy reuse
+- Use the `/playlists` endpoint once to discover your playlist IDs
+- For large playlists (600+ videos), consider processing in batches
+- Cache video data to avoid re-fetching unchanged playlists
 
 ## Development
 

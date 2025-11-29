@@ -93,7 +93,7 @@ export class YouTubeService {
     return !!(credentials && credentials.access_token);
   }
 
-  async fetchWatchLaterVideos(): Promise<VideoInfo[]> {
+  async fetchPlaylistVideos(playlistId: string): Promise<VideoInfo[]> {
     if (!this.isAuthorized()) {
       throw new Error('Not authorized. Please complete OAuth flow first.');
     }
@@ -102,23 +102,23 @@ export class YouTubeService {
     let pageToken: string | undefined = undefined;
 
     try {
-      // First, get the Watch Later playlist ID (it's a special playlist)
-      // For Watch Later, we use the special playlist ID format
-      const channelResponse = await this.youtube.channels.list({
-        part: ['contentDetails'],
-        mine: true,
-      });
-
-      const watchLaterPlaylistId = 'WL'; // Special ID for Watch Later
+      console.log(`Fetching playlist: ${playlistId}`);
 
       // Fetch all videos from the playlist
       do {
+        console.log('Fetching playlist page, token:', pageToken);
         const playlistResponse: any = await this.youtube.playlistItems.list({
           part: ['snippet', 'contentDetails'],
-          playlistId: watchLaterPlaylistId,
+          playlistId: playlistId,
           maxResults: 50,
           pageToken: pageToken,
         });
+
+        console.log('Playlist response items:', playlistResponse.data.items?.length || 0);
+
+        if (!playlistResponse.data.items || playlistResponse.data.items.length === 0) {
+          break;
+        }
 
         const videoIds = playlistResponse.data.items.map(
           (item: any) => item.contentDetails.videoId
@@ -152,8 +152,27 @@ export class YouTubeService {
 
       return videos;
     } catch (error: any) {
-      console.error('Error fetching Watch Later videos:', error);
-      throw new Error(`Failed to fetch videos: ${error.message}`);
+      console.error(`Error fetching playlist ${playlistId}:`, error);
+      throw new Error(`Failed to fetch playlist: ${error.message}`);
+    }
+  }
+
+  async listMyPlaylists(): Promise<any[]> {
+    if (!this.isAuthorized()) {
+      throw new Error('Not authorized. Please complete OAuth flow first.');
+    }
+
+    try {
+      const playlistsResponse = await this.youtube.playlists.list({
+        part: ['snippet', 'contentDetails'],
+        mine: true,
+        maxResults: 50
+      });
+
+      return playlistsResponse.data.items || [];
+    } catch (error: any) {
+      console.error('Error fetching playlists:', error);
+      throw new Error(`Failed to fetch playlists: ${error.message}`);
     }
   }
 

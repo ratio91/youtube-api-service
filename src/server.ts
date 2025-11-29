@@ -48,12 +48,54 @@ app.post('/auth/callback', express.json(), async (req: Request, res: Response) =
   }
 });
 
-// Protected endpoints (require basic auth)
-app.get('/videos', basicAuth, async (req: Request, res: Response) => {
+// List all user's playlists
+app.get('/playlists', basicAuth, async (req: Request, res: Response) => {
   try {
-    const videos = await youtubeService.fetchWatchLaterVideos();
+    const playlists = await youtubeService.listMyPlaylists();
     
     res.json({
+      count: playlists.length,
+      playlists: playlists.map((p: any) => ({
+        id: p.id,
+        title: p.snippet.title,
+        description: p.snippet.description,
+        itemCount: p.contentDetails?.itemCount || 0,
+        publishedAt: p.snippet.publishedAt
+      })),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('Error in /playlists endpoint:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Fetch specific playlist by ID
+app.get('/playlist/:playlistId', basicAuth, async (req: Request, res: Response) => {
+  try {
+    const { playlistId } = req.params;
+    const videos = await youtubeService.fetchPlaylistVideos(playlistId);
+    
+    res.json({
+      playlistId,
+      count: videos.length,
+      videos: videos,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error(`Error fetching playlist ${req.params.playlistId}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/videos', basicAuth, async (req: Request, res: Response) => {
+  try {
+    // Accept playlist ID as query parameter, or use a default
+    const playlistId = (req.query.playlistId as string) || 'PLQcPvIvhgJdyEWB_pIINyjW9YugyqXRGU'; // Your History playlist
+    const videos = await youtubeService.fetchPlaylistVideos(playlistId);
+    
+    res.json({
+      playlistId,
       count: videos.length,
       videos: videos,
       timestamp: new Date().toISOString()
