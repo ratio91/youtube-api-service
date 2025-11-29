@@ -17,7 +17,9 @@ A TypeScript-based microservice for fetching YouTube Watch Later videos and tran
 - Go to: https://console.cloud.google.com/
 - Create a new project or select an existing one
 - Enable YouTube Data API v3
-- Create OAuth 2.0 credentials (Desktop app type)
+- Create OAuth 2.0 credentials (**Web application** type, not Desktop)
+- In "Authorized redirect URIs", add: `https://youtube-api.yourdomain.com/oauth/callback`
+  (Replace `yourdomain.com` with your actual domain)
 - Download credentials and note the Client ID and Client Secret
 
 **Note on OAuth verification:** You don't need to verify your app if you're the only user. When authorizing, Google will show "This app isn't verified" - just click "Advanced" → "Go to [your app name] (unsafe)" → Authorize. This is safe since you built the app and are authorizing your own data.
@@ -36,10 +38,9 @@ Edit `.env`:
 ```env
 YOUTUBE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 YOUTUBE_CLIENT_SECRET=your-client-secret
+OAUTH_REDIRECT_URI=https://youtube-api.yourdomain.com/oauth/callback
 BASIC_AUTH_USER=your-username
 BASIC_AUTH_PASS=your-password
-BASE_DOMAIN=yourdomain.com
-PORT=3000
 ```
 
 ### 2. Build the Docker Image
