@@ -36,7 +36,7 @@ export class YouTubeService {
     this.oauth2Client = new google.auth.OAuth2(
       process.env.YOUTUBE_CLIENT_ID,
       process.env.YOUTUBE_CLIENT_SECRET,
-      process.env.YOUTUBE_REDIRECT_URI
+      process.env.OAUTH_REDIRECT_URI
     );
 
     this.youtube = google.youtube({
