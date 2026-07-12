@@ -3,8 +3,9 @@ import { OAuth2Client } from 'google-auth-library';
 import * as fs from 'fs';
 import * as path from 'path';
 import { YoutubeTranscript } from 'youtube-transcript';
+import { config } from './config';
 
-const TOKEN_PATH = '/data/tokens.json';
+const TOKEN_PATH = config.TOKEN_PATH;
 const SCOPES = ['https://www.googleapis.com/auth/youtube.readonly'];
 
 interface VideoInfo {
@@ -24,8 +25,9 @@ interface VideoInfo {
 
 interface TranscriptEntry {
   text: string;
-  duration: number;
-  offset: number;
+  duration: number; // milliseconds (youtube-transcript >= 1.3)
+  offset: number; // milliseconds
+  lang?: string;
 }
 
 export class YouTubeService {
@@ -34,10 +36,25 @@ export class YouTubeService {
 
   constructor() {
     this.oauth2Client = new google.auth.OAuth2(
-      process.env.YOUTUBE_CLIENT_ID,
-      process.env.YOUTUBE_CLIENT_SECRET,
-      process.env.OAUTH_REDIRECT_URI
+      config.YOUTUBE_CLIENT_ID,
+      config.YOUTUBE_CLIENT_SECRET,
+      config.OAUTH_REDIRECT_URI
     );
+
+    // Persist refreshed access tokens; keep the existing refresh_token
+    // when the event doesn't include a new one.
+    this.oauth2Client.on('tokens', (tokens) => {
+      try {
+        const merged = { ...this.oauth2Client.credentials, ...tokens };
+        if (!tokens.refresh_token && this.oauth2Client.credentials.refresh_token) {
+          merged.refresh_token = this.oauth2Client.credentials.refresh_token;
+        }
+        this.oauth2Client.setCredentials(merged);
+        this.saveTokens(merged);
+      } catch (error) {
+        console.error('Error persisting refreshed tokens:', error);
+      }
+    });
 
     this.youtube = google.youtube({
       version: 'v3',
@@ -78,6 +95,7 @@ export class YouTubeService {
   getAuthUrl(): string {
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
+      prompt: 'consent',
       scope: SCOPES,
     });
   }
@@ -183,6 +201,7 @@ export class YouTubeService {
         text: entry.text,
         duration: entry.duration,
         offset: entry.offset,
+        lang: entry.lang,
       }));
     } catch (error: any) {
       console.error(`Error fetching transcript for ${videoId}:`, error);
