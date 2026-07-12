@@ -1,0 +1,60 @@
+# Docker Swarm stack file for youtube-api-service.
+#
+# Deploy standalone with (BASE_DOMAIN must be set in the shell):
+#
+#   set -a; source .env; set +a; docker stack deploy -c docker-stack.yml youtube-api
+#
+# If your host already runs a combined stack, copy the service block below
+# into it instead and adjust the env_file/volume paths.
+#
+# Placeholders you MUST adapt before deploying:
+#   - BASE_DOMAIN                  -> your domain (router becomes youtube-api.<BASE_DOMAIN>;
+#                                     must match the OAUTH_REDIRECT_URI host)
+#   - entrypoints / certresolver   -> your Traefik entrypoint and certificate resolver names
+#   - network `traefik-public`     -> the external overlay network your Traefik instance uses
+version: "3.8"
+
+services:
+  youtube-api:
+    image: youtube-api-service:latest
+    # The app validates all required env vars at boot and refuses to start if
+    # any is missing. DEFAULT_PLAYLIST_ID is optional.
+    env_file: ./.env
+    volumes:
+      # OAuth tokens (/data/tokens.json) must survive container restarts.
+      - type: bind
+        source: ./data
+        target: /data
+    networks:
+      - traefik-public
+    healthcheck:
+      # node:24-alpine does not guarantee curl/wget; node's built-in fetch is
+      # always available in the image.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      # Swarm mode: Traefik reads labels from deploy.labels (service labels),
+      # not from container-level labels. These assume an EXISTING Traefik
+      # instance attached to the external overlay network above.
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.youtube-api.rule=Host(`youtube-api.${BASE_DOMAIN}`)
+        - traefik.http.routers.youtube-api.entrypoints=websecure
+        - traefik.http.routers.youtube-api.tls=true
+        - traefik.http.routers.youtube-api.tls.certresolver=letsencrypt
+        - traefik.http.services.youtube-api.loadbalancer.server.port=3000
+
+networks:
+  # Must match your existing Traefik proxy overlay network
+  # (e.g. created with `docker network create -d overlay traefik-public`).
+  traefik-public:
+    external: true

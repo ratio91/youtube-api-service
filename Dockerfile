@@ -38,5 +38,9 @@ USER node
 # Expose port
 EXPOSE 3000
 
+# Healthcheck via node's built-in fetch (curl/wget not guaranteed in alpine image)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 # Start the application
 CMD ["node", "dist/server.js"]
