@@ -197,7 +197,7 @@ export class YouTubeService {
   async getTranscript(videoId: string): Promise<TranscriptEntry[]> {
     // YouTube intermittently soft-blocks transcript requests from server IPs
     // (reported as "Transcript is disabled"), so retry before giving up.
-    const maxAttempts = 3;
+    const maxAttempts = 4;
     let lastError: any;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -213,7 +213,7 @@ export class YouTubeService {
         lastError = error;
         console.error(`Error fetching transcript for ${videoId} (attempt ${attempt}/${maxAttempts}):`, error.message);
         if (attempt < maxAttempts) {
-          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
         }
       }
     }
