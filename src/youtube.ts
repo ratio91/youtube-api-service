@@ -195,18 +195,30 @@ export class YouTubeService {
   }
 
   async getTranscript(videoId: string): Promise<TranscriptEntry[]> {
-    try {
-      const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-      return transcript.map((entry: any) => ({
-        text: entry.text,
-        duration: entry.duration,
-        offset: entry.offset,
-        lang: entry.lang,
-      }));
-    } catch (error: any) {
-      console.error(`Error fetching transcript for ${videoId}:`, error);
-      throw new Error(`Failed to fetch transcript: ${error.message}`);
+    // YouTube intermittently soft-blocks transcript requests from server IPs
+    // (reported as "Transcript is disabled"), so retry before giving up.
+    const maxAttempts = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+        return transcript.map((entry: any) => ({
+          text: entry.text,
+          duration: entry.duration,
+          offset: entry.offset,
+          lang: entry.lang,
+        }));
+      } catch (error: any) {
+        lastError = error;
+        console.error(`Error fetching transcript for ${videoId} (attempt ${attempt}/${maxAttempts}):`, error.message);
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        }
+      }
     }
+
+    throw new Error(`Failed to fetch transcript: ${lastError.message}`);
   }
 
   async getBatchTranscripts(videoIds: string[]): Promise<{ [videoId: string]: TranscriptEntry[] | null }> {
