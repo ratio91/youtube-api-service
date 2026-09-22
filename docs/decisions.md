@@ -193,3 +193,18 @@ the yt-dlp queue, fetches re-check the cache inside the queue; batch delay only 
 real fetches; listing/stats memoised 60 s. Only `NO_CAPTIONS` is cached (TTL
 `NO_CAPTIONS_TTL_DAYS`, default 7); `LANG_UNAVAILABLE` is not, since a manual track in
 that language may appear later.
+
+## 2026-09-22 — Task 6 gates: PASSED locally and on the home machine
+
+**Local (dev Mac, bind-mounted data dir):** first fetch `cached:false` + file written;
+second fetch `cached:true`, same `fetchedAt`, log shows 1 `transcript.ok` and 1
+`transcript.cache_hit`; `format=text` from cache byte-identical to a `refresh=true`
+live answer (145,773 bytes); refresh updated `fetchedAt` on disk; `ScMzIvxBSi4` → 404
+`cached:false` then 404 `cached:true`, `<id>.none.json` present; `GET /transcripts`
+lists both; container restart → still `cached:true`; batch [cached EN, new DE] → one
+yt-dlp run, no delay, `tracks[id].cached` correct; `/health.cache` = 3 files /
+371 kB / writable; no temp files left.
+
+**Home machine (compose, `./data/transcripts`):** same sequence after `git pull` +
+rebuild; files owned by the host user (uid 1000 = container `node`), `cache.writable:
+true`, container healthy. Commit `052fbb8` deployed.
