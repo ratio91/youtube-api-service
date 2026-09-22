@@ -2,13 +2,19 @@ import { OAuthCheck, YouTubeService } from './youtube';
 
 export interface TranscriptsHealth {
   backend: 'yt-dlp';
+  /** yt-dlp --version, null when the binary cannot be run */
   version: string | null;
+  /** binary runs and reports a version */
   ok: boolean;
   error?: string;
-  jsRuntime: { name: string; version: string | null; present: boolean };
+  /** yt-dlp's OWN detection of the JS runtime it was told to use (probe, not assumption) */
+  jsRuntime: { requested: string; detected: string | null; present: boolean };
+  /** bundled yt-dlp-ejs (n/sig solver) version */
+  ejs: string | null;
 }
 
 export interface HealthReport {
+  /** degraded when yt-dlp cannot run OR it does not detect the requested JS runtime */
   status: 'ok' | 'degraded';
   mode: 'full' | 'transcript-only';
   oauth: 'disabled' | OAuthCheck['status'];
@@ -30,9 +36,9 @@ export interface HealthDeps {
 
 /**
  * Builds /health responses. The OAuth refresh check hits Google, so its result
- * is cached for `oauthCacheMs`. The yt-dlp probe runs once and is cached while it
- * succeeds (the binary cannot change inside a running container); a failing probe
- * is retried every `transcriptsRecheckMs`.
+ * is cached for `oauthCacheMs`. The yt-dlp probe runs once and is cached while it is
+ * fully healthy (the binary cannot change inside a running container); a failing or
+ * degraded probe is retried every `transcriptsRecheckMs`.
  */
 export function createHealthProvider(deps: HealthDeps): () => Promise<HealthReport> {
   const now = deps.now ?? (() => Date.now());
@@ -59,7 +65,8 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
   }
 
   async function transcriptsStatus(): Promise<TranscriptsHealth> {
-    if (transcriptsCache && (transcriptsCache.value.ok || now() - transcriptsCache.at < recheckMs)) {
+    const healthy = (v: TranscriptsHealth) => v.ok && v.jsRuntime.present;
+    if (transcriptsCache && (healthy(transcriptsCache.value) || now() - transcriptsCache.at < recheckMs)) {
       return transcriptsCache.value;
     }
     const value = await deps.probeTranscripts();
@@ -70,7 +77,7 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
   return async () => {
     const [oauth, transcripts] = await Promise.all([oauthStatus(), transcriptsStatus()]);
     return {
-      status: transcripts.ok ? 'ok' : 'degraded',
+      status: transcripts.ok && transcripts.jsRuntime.present ? 'ok' : 'degraded',
       mode: deps.youtube ? 'full' : 'transcript-only',
       oauth: oauth ? oauth.status : 'disabled',
       ...(oauth ? { oauthDetail: oauth } : {}),

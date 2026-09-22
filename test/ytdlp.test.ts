@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildArgs, classifyFailure, detectBlockSignal, lastLines, parseInfoJson, YtDlpResult, VIDEO_ID_RE } from '../src/transcripts/ytdlp';
+import { buildArgs, classifyFailure, detectBlockSignal, lastLines, parseInfoJson, parseYtDlpDebugHeader, YtDlpResult, VIDEO_ID_RE } from '../src/transcripts/ytdlp';
 
 const base: YtDlpResult = { exitCode: 1, signal: null, stdout: '', stderr: '', timedOut: false, durationMs: 100 };
 const fixtureStdout = fs.readFileSync(path.join(process.cwd(), 'test', 'fixtures', 'info', 'lXUZvyajciY.json'), 'utf8');
@@ -106,5 +106,34 @@ describe('parseInfoJson / lastLines', () => {
     expect(lastLines('[debug] a\nWARNING: b\nERROR: c\n')).toBe('ERROR: c');
     expect(lastLines('one\ntwo\nthree\nfour')).toBe('two | three | four');
     expect(lastLines('x'.repeat(700)).length).toBeLessThan(700);
+  });
+});
+
+describe('parseYtDlpDebugHeader (captured from yt-dlp 2026.08.19 `-v` with no URL)', () => {
+  const header = [
+    '[debug] Command-line config: [\'-v\', \'--js-runtimes\', \'node\']',
+    '[debug] yt-dlp version stable@2026.08.19 from yt-dlp/yt-dlp (musllinux_aarch64_exe)',
+    '[debug] Optional libraries: Cryptodome-3.23.0, brotli-1.2.0, certifi-2026.07.22, curl_cffi-0.16.0, mutagen-1.48.1, requests-2.34.2, secretstorage-3.5.0, sqlite3-3.53.4, urllib3-2.7.0, websockets-17.0.1, yt_dlp_ejs-0.8.0',
+    '[debug] JS runtimes: node-24.21.0',
+    'Usage: yt-dlp [OPTIONS] URL [URL...]',
+    'yt-dlp: error: You must provide at least one URL.',
+  ].join('\n');
+
+  it('extracts version, detected runtime and ejs version', () => {
+    expect(parseYtDlpDebugHeader(header)).toEqual({ version: '2026.08.19', jsRuntimes: 'node-24.21.0', ejs: '0.8.0' });
+  });
+
+  it('reads the negative wordings', () => {
+    expect(parseYtDlpDebugHeader('[debug] JS runtimes: none (disabled)\n').jsRuntimes).toBe('none (disabled)');
+    expect(parseYtDlpDebugHeader('[debug] JS runtimes: none\n').jsRuntimes).toBe('none');
+  });
+
+  it('handles a pip install header without channel prefix and without ejs', () => {
+    const h = '[debug] yt-dlp version 2026.08.19 from yt-dlp/yt-dlp (pip)\n[debug] Optional libraries: certifi-2026.07.22\n[debug] JS runtimes: deno-2.9.7\n';
+    expect(parseYtDlpDebugHeader(h)).toEqual({ version: '2026.08.19', jsRuntimes: 'deno-2.9.7', ejs: null });
+  });
+
+  it('returns nulls for unrelated output', () => {
+    expect(parseYtDlpDebugHeader('sh: yt-dlp: not found')).toEqual({ version: null, jsRuntimes: null, ejs: null });
   });
 });

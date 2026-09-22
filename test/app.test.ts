@@ -77,7 +77,7 @@ const HEALTH_OK: HealthReport = {
   status: 'ok',
   mode: 'full',
   oauth: 'ok',
-  transcripts: { backend: 'yt-dlp', version: '2026.08.19', ok: true, jsRuntime: { name: 'node', version: 'v24.0.0', present: true } },
+  transcripts: { backend: 'yt-dlp', version: '2026.08.19', ok: true, jsRuntime: { requested: 'node', detected: 'node-24.21.0', present: true }, ejs: '0.8.0' },
   authorized: true,
   timestamp: '2026-09-22T00:00:00.000Z',
 };

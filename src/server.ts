@@ -3,7 +3,7 @@ import { YouTubeService } from './youtube';
 import { createApp } from './app';
 import { createHealthProvider, TranscriptsHealth } from './health';
 import { TranscriptService } from './transcripts/service';
-import { createYtDlpRunner, probeYtDlpVersion } from './transcripts/ytdlp';
+import { createYtDlpRunner, probeYtDlp } from './transcripts/ytdlp';
 import { log } from './log';
 
 const youtube = config.oauth ? new YouTubeService(config.oauth, config.TOKEN_PATH) : null;
@@ -19,20 +19,16 @@ const transcripts = new TranscriptService({
 });
 
 async function probeTranscripts(): Promise<TranscriptsHealth> {
-  const probe = await probeYtDlpVersion(config.YTDLP_PATH);
-  const usesNode = config.YTDLP_JS_RUNTIME === 'node';
+  // Same binary and --js-runtimes flag as real calls; reports what yt-dlp itself
+  // detects (see docs/decisions.md 2026-09-22 "health probe hardening").
+  const probe = await probeYtDlp({ binary: config.YTDLP_PATH, jsRuntime: config.YTDLP_JS_RUNTIME });
   return {
     backend: 'yt-dlp',
     version: probe.version,
     ok: probe.version !== null,
     ...(probe.error ? { error: probe.error } : {}),
-    // yt-dlp is told to use this same Node binary (--js-runtimes node); it only
-    // matters for media-format deciphering, not for caption extraction.
-    jsRuntime: {
-      name: config.YTDLP_JS_RUNTIME,
-      version: usesNode ? process.version : null,
-      present: usesNode || config.YTDLP_JS_RUNTIME === 'none',
-    },
+    jsRuntime: probe.jsRuntime,
+    ejs: probe.ejs,
   };
 }
 
@@ -47,6 +43,8 @@ app.listen(config.PORT, async () => {
     mode: youtube ? 'full' : 'transcript-only',
     ytdlp: t.version ?? `unavailable (${t.error})`,
     jsRuntime: t.jsRuntime,
+    ejs: t.ejs,
+    degraded: !(t.ok && t.jsRuntime.present),
     batchDelayMs: config.TRANSCRIPT_BATCH_DELAY_MS,
   });
   if (youtube && !youtube.isAuthorized()) {

@@ -139,7 +139,8 @@ so a broken transcript backend shows up in monitoring without flapping the conta
     "backend": "yt-dlp",
     "version": "2026.08.19",
     "ok": true,
-    "jsRuntime": { "name": "node", "version": "v24.21.0", "present": true }
+    "jsRuntime": { "requested": "node", "detected": "node-24.21.0", "present": true },
+    "ejs": "0.8.0"
   },
   "authorized": false,
   "timestamp": "2026-09-22T12:00:00.000Z"
@@ -148,12 +149,13 @@ so a broken transcript backend shows up in monitoring without flapping the conta
 
 | Field | Values | Meaning |
 |---|---|---|
-| `status` | `ok`, `degraded` | `degraded` when yt-dlp cannot be executed |
+| `status` | `ok`, `degraded` | `degraded` when yt-dlp cannot be executed **or does not detect the requested JS runtime** |
 | `mode` | `full`, `transcript-only` | Whether OAuth is configured |
 | `oauth` | `disabled`, `ok`, `expired`, `unauthorized`, `error` | `ok` only if the stored refresh token **actually refreshed** (checked against Google, cached `HEALTH_OAUTH_CACHE_MS`). `expired` = Google answered `invalid_grant`. `unauthorized` = OAuth configured but no token stored yet. `error` = check failed for another reason (see `oauthDetail.error`). |
 | `oauthDetail` | object | `{ status, checkedAt, error? }`, present in full mode |
 | `transcripts.version` | string or `null` | Output of `yt-dlp --version`; `null` if the binary failed to run (`transcripts.error` says why) |
-| `transcripts.jsRuntime` | object | Runtime yt-dlp is told to use for media-URL deciphering (not needed for captions) |
+| `transcripts.jsRuntime` | object | `requested` = value of `YTDLP_JS_RUNTIME`; `detected` = what **yt-dlp itself** reports in its `-v` header (`node-24.21.0`, or `none`); `present` = detected and not `none`. Probed offline by running `yt-dlp -v --js-runtimes …` without a URL, so it reflects the flag real calls use, not just that a binary exists. The runtime only affects media-URL deciphering, never caption extraction, but without it yt-dlp drops the `web` client. |
+| `transcripts.ejs` | string or `null` | Bundled `yt-dlp-ejs` (JS challenge solver) version |
 | `authorized` | boolean | Legacy field: `true` only when `oauth` is `ok` |
 
 ### Transcripts
@@ -298,7 +300,7 @@ Reading is nearly free; **sorting 100 videos into topic playlists (add + remove)
 npm ci
 npm run dev        # ts-node, http://localhost:3000 (needs yt-dlp on PATH for transcripts)
 npm run build
-npm test           # vitest: 87 unit/route tests, no network
+npm test           # vitest: 97 unit/route tests, no network
 ```
 
 `package-lock.json` is committed — use `npm ci`.
@@ -320,8 +322,11 @@ curl -su $A -o /dev/null -w '%{http_code}\n' "$H/transcript/aaaaaaaaaaa"        
 ## Troubleshooting
 
 - **Service exits at startup** — the log lists the missing/invalid variables.
-- **`/health` says `degraded`** — `transcripts.error` tells you why yt-dlp could not
-  run (`ENOENT` = binary missing; rebuild the image).
+- **`/health` says `degraded`** — either `transcripts.error` tells you why yt-dlp could
+  not run (`ENOENT` = binary missing; rebuild the image), or
+  `transcripts.jsRuntime.detected` is `none`: yt-dlp did not find the runtime named in
+  `YTDLP_JS_RUNTIME`. With the default `node` that means `node` is not on the PATH yt-dlp
+  sees; check `docker compose exec youtube-api yt-dlp -v --js-runtimes node`.
 - **Every transcript answers `503 BLOCKED`** — YouTube is bot-checking this IP.
   Wait, keep the batch delay generous, and make sure the machine is on a residential
   connection. If the reason mentions a *PO Token*, check the

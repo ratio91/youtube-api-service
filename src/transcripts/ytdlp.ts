@@ -72,13 +72,57 @@ export function createYtDlpRunner(opts: YtDlpOptions): YtDlpRunner {
   return (videoId) => runProcess(opts.binary, buildArgs(videoId, opts), opts.timeoutMs);
 }
 
-export async function probeYtDlpVersion(binary: string, timeoutMs = 15_000): Promise<{ version: string | null; error?: string }> {
-  const r = await runProcess(binary, ['--version'], timeoutMs);
-  if (r.spawnError) return { version: null, error: `${r.spawnError.code ?? 'spawn error'}: ${r.spawnError.message}` };
-  if (r.timedOut) return { version: null, error: 'yt-dlp --version timed out' };
-  if (r.exitCode !== 0) return { version: null, error: `exit ${r.exitCode}: ${lastLines(r.stderr)}` };
-  const version = r.stdout.trim().split('\n').pop()?.trim() ?? '';
-  return version ? { version } : { version: null, error: 'empty --version output' };
+export interface YtDlpProbe {
+  /** e.g. "2026.08.19"; null when the binary could not be run or the header was unreadable */
+  version: string | null;
+  jsRuntime: {
+    /** what the service passes to --js-runtimes ("none" = flag omitted, yt-dlp default) */
+    requested: string;
+    /** yt-dlp's own detection, e.g. "node-24.21.0", "none", "none (disabled)" */
+    detected: string | null;
+    present: boolean;
+  };
+  /** bundled yt-dlp-ejs version (the n/sig challenge solver), null if absent */
+  ejs: string | null;
+  error?: string;
+}
+
+/**
+ * Parse the `-v` debug header. Verified 2026-09-22 on yt-dlp 2026.08.19:
+ *   [debug] yt-dlp version stable@2026.08.19 from yt-dlp/yt-dlp (musllinux_aarch64_exe)
+ *   [debug] Optional libraries: Cryptodome-3.23.0, …, yt_dlp_ejs-0.8.0
+ *   [debug] JS runtimes: node-24.21.0            | none | none (disabled)
+ */
+export function parseYtDlpDebugHeader(stderr: string): { version: string | null; jsRuntimes: string | null; ejs: string | null } {
+  const version = stderr.match(/^\[debug\] yt-dlp version (?:\S+@)?(\d{4}\.\d{2}\.\d{2}(?:\.\d+)?)/m)?.[1] ?? null;
+  const jsRuntimes = stderr.match(/^\[debug\] JS runtimes: (.+?)\s*$/m)?.[1] ?? null;
+  const ejs = stderr.match(/\byt_dlp_ejs-(\S+?)(?:,|\s|$)/)?.[1] ?? null;
+  return { version, jsRuntimes, ejs };
+}
+
+/**
+ * Health probe without touching YouTube: `yt-dlp -v [--js-runtimes X]` with no URL
+ * prints the debug header (version, optional libraries, detected JS runtimes) and
+ * then exits 2 with "You must provide at least one URL". Same flag as the real
+ * calls, so what it reports is what extraction will use.
+ */
+export async function probeYtDlp(opts: Pick<YtDlpOptions, 'binary' | 'jsRuntime'>, timeoutMs = 15_000): Promise<YtDlpProbe> {
+  const args = ['-v'];
+  if (opts.jsRuntime && opts.jsRuntime !== 'none') args.push('--js-runtimes', opts.jsRuntime);
+  const base: YtDlpProbe = { version: null, jsRuntime: { requested: opts.jsRuntime, detected: null, present: false }, ejs: null };
+  const r = await runProcess(opts.binary, args, timeoutMs);
+  if (r.spawnError) return { ...base, error: `${r.spawnError.code ?? 'spawn error'}: ${r.spawnError.message}` };
+  if (r.timedOut) return { ...base, error: 'yt-dlp probe timed out' };
+  const header = parseYtDlpDebugHeader(r.stderr + '\n' + r.stdout);
+  if (!header.version && !header.jsRuntimes) {
+    return { ...base, error: `unexpected yt-dlp output (exit ${r.exitCode}): ${lastLines(r.stderr || r.stdout)}` };
+  }
+  const detected = header.jsRuntimes;
+  return {
+    version: header.version,
+    jsRuntime: { requested: opts.jsRuntime, detected, present: detected !== null && !/^none\b/i.test(detected) },
+    ejs: header.ejs,
+  };
 }
 
 // --- classification -------------------------------------------------------

@@ -151,3 +151,22 @@ Reachability: `/health` answers 200 from the n8n host over the tailnet (58 ms) a
 **Cutover status:** the old VPS service keeps running until the n8n workflows are
 repointed to `http://<home-machine-tailscale-ip>:3000` with the new basic-auth
 credential. Retire the VPS service afterwards.
+
+## 2026-09-22 — Health probe hardening (operator review finding)
+
+**Finding (operator):** `/health.transcripts.jsRuntime` only echoed `process.version`,
+i.e. it proved that Node exists, not that yt-dlp uses it. yt-dlp enables only Deno by
+default; Node is used only because every call passes `--js-runtimes node`.
+
+**Field check on the home machine (inside the running container, same argv as the
+service):** `[debug] JS runtimes: node-24.21.0` and `[jsc] JS Challenge Providers: bun
+(unavailable), deno (unavailable), node, quickjs (unavailable)`; all successful calls so
+far logged `stderrLines: 0`, so the "No supported JavaScript runtime" warning never fired.
+The flag works as intended.
+
+**Fix:** the health probe now runs `yt-dlp -v [--js-runtimes X]` **with no URL** (prints
+the debug header offline in <1 s, exits 2) and parses `yt-dlp version …`, `JS runtimes: …`
+and `yt_dlp_ejs-…`. `/health` reports `jsRuntime: { requested, detected, present }` and
+`ejs`; `status` is `degraded` when the requested runtime is not detected. A degraded probe
+is re-run every 60 s, a healthy one is cached. Header wording verified against 2026.08.19
+(`node-24.21.0`, `none`, `none (disabled)`).
