@@ -18,6 +18,10 @@ export const captionInfoSchema = z
   .object({
     id: z.string().optional(),
     title: z.string().optional(),
+    channel: z.string().nullish(),
+    uploader: z.string().nullish(),
+    /** seconds */
+    duration: z.number().nullish(),
     language: z.string().nullish(),
     subtitles: trackDictSchema,
     automatic_captions: trackDictSchema,

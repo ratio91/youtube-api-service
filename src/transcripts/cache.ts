@@ -31,6 +31,9 @@ export const trackRecordSchema = z.object({
   version: z.literal(1),
   videoId: z.string().regex(VIDEO_ID_RE),
   title: z.string().optional(),
+  channel: z.string().optional(),
+  /** video length in seconds as reported by yt-dlp */
+  durationSec: z.number().optional(),
   lang: z.string().min(1),
   kind: z.enum(['manual', 'auto']),
   /** written by a request without ?lang= → preferred hit for later default requests */

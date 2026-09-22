@@ -84,6 +84,7 @@ const HEALTH_OK: HealthReport = {
   cache: { dir: '/data/transcripts', files: 3, sizeBytes: 12345, writable: true },
   llm: { ok: true, baseUrl: 'http://host.docker.internal:8000/v1', model: 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf', contextTokens: 65536, build: 'b9598' },
   summaryCache: { dir: '/data/summaries', files: 1, sizeBytes: 2048, writable: true },
+  notes: { dir: '/data/obsidian-inbox', files: 1, sizeBytes: 4096, writable: true },
   authorized: true,
   timestamp: '2026-09-22T00:00:00.000Z',
 };
@@ -379,7 +380,9 @@ describe('GET /summary/:videoId', () => {
     const { app, summaries } = makeApp();
     const res = await request(app).get('/summary/fW4SwcMQYdA').query({ lang: 'de', summaryLang: 'en', refresh: 'true' }).set('Authorization', GOOD_AUTH);
     expect(res.status).toBe(200);
-    expect(summaries!.getSummary).toHaveBeenCalledWith('fW4SwcMQYdA', { lang: 'de', summaryLang: 'en', refresh: true });
+    expect(summaries!.getSummary).toHaveBeenCalledWith('fW4SwcMQYdA', { lang: 'de', summaryLang: 'en', refresh: true, export: false });
+    await request(app).get('/summary/fW4SwcMQYdA').query({ export: '1' }).set('Authorization', GOOD_AUTH);
+    expect(summaries!.getSummary).toHaveBeenLastCalledWith('fW4SwcMQYdA', expect.objectContaining({ export: true, refresh: false }));
     expect(res.body).toMatchObject({ videoId: 'fW4SwcMQYdA', summaryLang: 'de', markdown: '## TL;DR\nText.', cached: false });
     expect(typeof res.body.timestamp).toBe('string');
   });

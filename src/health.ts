@@ -27,6 +27,8 @@ export interface HealthReport {
   /** local LLM used for summaries; does not affect `status` (transcripts work without it) */
   llm: LlmProbe | null;
   summaryCache: CacheStats | null;
+  /** Obsidian note export directory; null when export is disabled */
+  notes: CacheStats | null;
   /** legacy field (pre-2026-09): true only when oauth === "ok" */
   authorized: boolean;
   timestamp: string;
@@ -42,6 +44,7 @@ export interface HealthDeps {
   llmCacheMs?: number;
   /** already memoised by SummaryStore.stats() */
   summaryStats?: () => Promise<CacheStats>;
+  notesStats?: () => Promise<CacheStats>;
   oauthCacheMs: number;
   /** re-probe interval for a failing transcript backend */
   transcriptsRecheckMs?: number;
@@ -99,12 +102,13 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
   }
 
   return async () => {
-    const [oauth, transcripts, cache, llm, summaryCache] = await Promise.all([
+    const [oauth, transcripts, cache, llm, summaryCache, notes] = await Promise.all([
       oauthStatus(),
       transcriptsStatus(),
       deps.cacheStats ? deps.cacheStats() : Promise.resolve(null),
       llmStatus(),
       deps.summaryStats ? deps.summaryStats() : Promise.resolve(null),
+      deps.notesStats ? deps.notesStats() : Promise.resolve(null),
     ]);
     return {
       status: transcripts.ok && transcripts.jsRuntime.present ? 'ok' : 'degraded',
@@ -115,6 +119,7 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
       cache,
       llm,
       summaryCache,
+      notes,
       authorized: oauth?.status === 'ok',
       timestamp: new Date().toISOString(),
     };

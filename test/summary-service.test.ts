@@ -8,6 +8,7 @@ import { Summarizer } from '../src/summaries/summarizer';
 import type { TranscriptService } from '../src/transcripts/service';
 import { TranscriptError } from '../src/transcripts/errors';
 import { LlmError } from '../src/llm/errors';
+import { ObsidianExporter } from '../src/notes/obsidian';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytsum-')); });
@@ -15,16 +16,16 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const ENTRIES = [{ text: 'hallo welt', offset: 0, duration: 1000, lang: 'de' }, { text: 'zweiter satz', offset: 1000, duration: 1000, lang: 'de' }];
 
-function make(over: { transcripts?: Partial<TranscriptService>; summarize?: () => Promise<unknown> } = {}) {
+function make(over: { transcripts?: Partial<TranscriptService>; summarize?: () => Promise<unknown>; exporter?: ObsidianExporter } = {}) {
   const transcripts = {
-    getEntries: vi.fn(async (videoId: string) => ({ videoId, title: 'Vortrag', lang: 'de', kind: 'auto', entries: ENTRIES, cached: true, fetchedAt: 'f' })),
+    getEntries: vi.fn(async (videoId: string) => ({ videoId, title: 'Vortrag', channel: 'Uni', durationSec: 600, lang: 'de', kind: 'auto', entries: ENTRIES, cached: true, fetchedAt: 'f' })),
     ...over.transcripts,
   } as unknown as TranscriptService;
   const summarize = vi.fn(over.summarize ?? (async () => ({ markdown: '## TL;DR\nText.', strategy: 'single', chunks: 1, llmCalls: 1, model: 'fake', promptVersion: 1, tokens: { prompt: 10, completion: 5 }, durationMs: 42, truncated: false })));
   const summarizer = { summarize } as unknown as Summarizer;
   const store = new SummaryStore({ dir });
   let clock = 1_700_000_000_000;
-  const service = new SummaryService({ transcripts, summarizer, store, now: () => (clock += 1000) });
+  const service = new SummaryService({ transcripts, summarizer, store, exporter: over.exporter, now: () => (clock += 1000) });
   return { service, transcripts, summarize, store };
 }
 
@@ -94,5 +95,49 @@ describe('SummaryService', () => {
     expect(await store.get('fW4SwcMQYdA', 'de')).toBeNull();
     expect(await store.get('bad id', 'de')).toBeNull();
     expect(await store.stats()).toMatchObject({ dir, files: 1, writable: true });
+  });
+});
+
+describe('SummaryService with the Obsidian exporter', () => {
+  it('writes a note on generation, not on cache hits, and again on ?export=true', async () => {
+    const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytnotes-'));
+    const exporter = new ObsidianExporter({ dir: notesDir, tags: ['video'] });
+    await exporter.init();
+    const { service, store } = make({ exporter });
+    const a = await service.getSummary('fW4SwcMQYdA');
+    expect(a.note).toMatchObject({ exported: true, fileName: 'Vortrag.md' });
+    expect(a).toMatchObject({ channel: 'Uni', durationSec: 600 });
+    const noteText = fs.readFileSync(path.join(notesDir, 'Vortrag.md'), 'utf8');
+    expect(noteText).toContain('channel: "Uni"');
+    expect(noteText).toContain('duration: "10:00"');
+    expect((await store.get('fW4SwcMQYdA', 'de'))?.exportPath).toBe(path.join(notesDir, 'Vortrag.md'));
+
+    fs.unlinkSync(path.join(notesDir, 'Vortrag.md')); // user "moved" the note out of the inbox
+    const b = await service.getSummary('fW4SwcMQYdA');
+    expect(b.cached).toBe(true);
+    expect(b.note).toBeUndefined();
+    expect(fs.existsSync(path.join(notesDir, 'Vortrag.md'))).toBe(false); // stays gone
+
+    const c = await service.getSummary('fW4SwcMQYdA', { export: true });
+    expect(c.cached).toBe(true);
+    expect(c.note).toMatchObject({ exported: true, fileName: 'Vortrag.md' });
+    fs.rmSync(notesDir, { recursive: true, force: true });
+  });
+
+  it('an export failure is reported in the result but does not fail the summary', async () => {
+    const file = path.join(dir, 'blocker');
+    fs.writeFileSync(file, 'x');
+    const exporter = new ObsidianExporter({ dir: file, tags: [] });
+    await exporter.init();
+    const { service } = make({ exporter });
+    const r = await service.getSummary('fW4SwcMQYdA');
+    expect(r.markdown).toContain('TL;DR');
+    expect(r.note?.exported).toBe(false);
+    expect(r.note?.error).toBeTruthy();
+  });
+
+  it('no exporter → no note field', async () => {
+    const { service } = make();
+    expect((await service.getSummary('fW4SwcMQYdA')).note).toBeUndefined();
   });
 });

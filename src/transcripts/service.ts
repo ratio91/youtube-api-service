@@ -61,6 +61,8 @@ interface FetchedTrack {
   kind: TrackKind;
   entries: TranscriptEntry[];
   title?: string;
+  channel?: string;
+  durationSec?: number;
 }
 
 /** Transcript entries plus track metadata, for in-process consumers (summaries). */
@@ -198,7 +200,7 @@ export class TranscriptService {
     const { record } = hit;
     log('info', 'transcript.cache_hit', { videoId, lang: record.lang, kind: record.kind, fetchedAt: record.fetchedAt });
     const entries: TranscriptEntry[] = record.segments.map((s) => ({ ...s, lang: record.lang }));
-    return { videoId, lang: record.lang, kind: record.kind, entries, title: record.title, cached: true, fetchedAt: record.fetchedAt };
+    return { videoId, lang: record.lang, kind: record.kind, entries, title: record.title, channel: record.channel, durationSec: record.durationSec, cached: true, fetchedAt: record.fetchedAt };
   }
 
   private async fetchAndStore(videoId: string, opts: Omit<TranscriptOptions, 'format'>): Promise<TranscriptEntries> {
@@ -219,6 +221,8 @@ export class TranscriptService {
         version: 1,
         videoId,
         ...(track.title ? { title: track.title } : {}),
+        ...(track.channel ? { channel: track.channel } : {}),
+        ...(track.durationSec ? { durationSec: track.durationSec } : {}),
         lang: track.lang,
         kind: track.kind,
         ...(opts.lang ? {} : { default: true }),
@@ -298,7 +302,15 @@ export class TranscriptService {
       stderrLines: result.stderr ? result.stderr.split('\n').filter(Boolean).length : 0,
     });
 
-    return { lang: track.lang, kind: track.kind, entries, ...(info.title ? { title: info.title } : {}) };
+    const channel = info.channel ?? info.uploader ?? undefined;
+    return {
+      lang: track.lang,
+      kind: track.kind,
+      entries,
+      ...(info.title ? { title: info.title } : {}),
+      ...(channel ? { channel } : {}),
+      ...(typeof info.duration === 'number' && info.duration > 0 ? { durationSec: info.duration } : {}),
+    };
   }
 }
 

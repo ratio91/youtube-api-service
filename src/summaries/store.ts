@@ -11,6 +11,8 @@ export const summaryRecordSchema = z.object({
   version: z.literal(1),
   videoId: z.string().regex(VIDEO_ID_RE),
   title: z.string().optional(),
+  channel: z.string().optional(),
+  durationSec: z.number().optional(),
   /** transcript track used */
   lang: z.string(),
   kind: z.enum(['manual', 'auto']),
@@ -25,6 +27,9 @@ export const summaryRecordSchema = z.object({
   tokens: z.object({ prompt: z.number(), completion: z.number() }),
   truncated: z.boolean(),
   markdown: z.string(),
+  /** Obsidian note export, if it happened */
+  exportedAt: z.string().datetime().optional(),
+  exportPath: z.string().optional(),
 });
 export type SummaryRecord = z.infer<typeof summaryRecordSchema>;
 

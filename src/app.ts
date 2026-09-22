@@ -31,7 +31,7 @@ const refreshParam = z
   .transform((v) => v === 'true' || v === '1');
 
 const transcriptQuerySchema = z.object({ lang: langParam, format: formatParam, refresh: refreshParam });
-const summaryQuerySchema = z.object({ lang: langParam, summaryLang: langParam, refresh: refreshParam });
+const summaryQuerySchema = z.object({ lang: langParam, summaryLang: langParam, refresh: refreshParam, export: refreshParam });
 const batchBodySchema = z.object({
   videoIds: z.array(z.string().regex(VIDEO_ID_RE, 'invalid YouTube video id')),
   lang: langParam,

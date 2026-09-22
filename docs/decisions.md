@@ -267,3 +267,24 @@ LLM outages surface as 503 retryable and never degrade `/health.status`.
 Observation: headings are emitted in English regardless of summary language (prompt says
 "these headings") — deliberate for uniform notes; to be confirmed with the operator.
 Files: `/data/summaries/<videoId>.<summaryLang>.json` (4–7 kB each).
+
+## 2026-09-22 — Task 8: Obsidian note export via nested Syncthing folder (decisions)
+
+**Operator decisions:** (1) nested folder — the service's export directory on the home
+machine is a Syncthing folder `video-inbox` shared with the vault device, where its path is
+`<vault>/video-inbox`; not a full vault copy on the home machine. (2) Pairing/acceptance is
+done by the operator in the two Syncthing UIs once the side-car is up. (3) Vault location:
+**top level `video-inbox`**. (4) Frontmatter: `title, source, channel, duration, created,
+language, model, tags, video_id`; **no transcript kind; no video id in the filename** —
+the id stays a property because the exporter needs it to find the note again.
+
+**Design:** `ObsidianExporter` writes `<sanitised title>.md` (Obsidian-forbidden chars
+stripped, ≤120 chars, ` (n)` suffix on title collisions of different videos), finds an
+existing note by `video_id` in the frontmatter (survives renames), writes via `.tmp/` +
+rename and drops an `.stignore` for `.tmp`. Export happens on every newly generated
+summary and on `?export=true`; cache hits never re-create a note (inbox semantics).
+Export failures are returned in `note.error` and never fail the summary. Syncthing runs as
+a compose side-car (`syncthing/syncthing:2`, matching v2.1.3 on the vault host), GUI and
+22000 published on `BIND_ADDR` only; the vault host's port 22000 is reachable from the
+home machine over the tailnet (probed). Channel and duration are now carried from the
+yt-dlp info JSON through the transcript cache into summaries and notes.

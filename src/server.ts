@@ -9,6 +9,7 @@ import { LlmClient } from './llm/client';
 import { Summarizer } from './summaries/summarizer';
 import { SummaryStore } from './summaries/store';
 import { SummaryService } from './summaries/service';
+import { ObsidianExporter } from './notes/obsidian';
 import { log } from './log';
 
 const youtube = config.oauth ? new YouTubeService(config.oauth, config.TOKEN_PATH) : null;
@@ -63,7 +64,10 @@ const summarizer = new Summarizer({
   maxOutputTokens: config.LLM_MAX_OUTPUT_TOKENS,
   charsPerToken: config.SUMMARY_CHARS_PER_TOKEN,
 });
-const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore });
+const exporter = config.OBSIDIAN_EXPORT_DIR
+  ? new ObsidianExporter({ dir: config.OBSIDIAN_EXPORT_DIR, tags: config.OBSIDIAN_TAGS.split(',').map((t) => t.trim()).filter(Boolean) })
+  : undefined;
+const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore, exporter });
 
 const health = createHealthProvider({
   youtube,
@@ -71,6 +75,7 @@ const health = createHealthProvider({
   cacheStats: () => cache.stats(),
   probeLlm,
   summaryStats: () => summaryStore.stats(),
+  ...(exporter ? { notesStats: () => exporter.stats() } : {}),
   oauthCacheMs: config.HEALTH_OAUTH_CACHE_MS,
 });
 
@@ -80,6 +85,7 @@ async function main() {
   const t = await probeTranscripts(); // populates lastProbe before the first fetch is cached
   await cache.init();
   await summaryStore.init();
+  if (exporter) await exporter.init();
   const l = await probeLlm();
   app.listen(config.PORT, () => {
     log('info', 'server.started', {
@@ -96,6 +102,7 @@ async function main() {
       llm: { baseUrl: l.baseUrl, ok: l.ok, model: l.model, contextTokens: config.LLM_CONTEXT_TOKENS ?? l.contextTokens ?? DEFAULT_CONTEXT_TOKENS, ...(l.error ? { error: l.error } : {}) },
       summaryDir: config.SUMMARY_CACHE_DIR,
       summaryWritable: summaryStore.isWritable(),
+      notes: exporter ? { dir: exporter.dir, writable: exporter.isWritable() } : 'disabled',
     });
     if (youtube && !youtube.isAuthorized()) {
       log('info', 'oauth.not_authorized', { hint: 'GET /auth/url to start the OAuth flow' });

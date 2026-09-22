@@ -25,6 +25,9 @@ services:
       # Local LLM (llama-server) runs on the HOST; host.docker.internal resolves to it
       # via the extra_hosts entry below. Override in .env if the LLM runs elsewhere.
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      # Obsidian notes: one Markdown file per summary, synced into the vault by the
+      # syncthing service below. Empty value disables the export.
+      OBSIDIAN_EXPORT_DIR: ${OBSIDIAN_EXPORT_DIR-/data/obsidian-inbox}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -46,6 +49,30 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Syncthing carries ./data/obsidian-inbox into the Obsidian vault on another
+  # device as a nested folder (see README "Obsidian notes"). GUI and sync port are
+  # published on BIND_ADDR only (Tailscale IP → reachable from your other devices,
+  # not from the internet). Pairing is done once in the two web UIs.
+  syncthing:
+    image: syncthing/syncthing:2
+    hostname: ${SYNCTHING_DEVICE_NAME:-youtube-api}
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      - ./syncthing:/var/syncthing
+      - ./data/obsidian-inbox:/var/syncthing/video-inbox
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${SYNCTHING_GUI_PORT:-8384}:8384"
+      - "${BIND_ADDR:-127.0.0.1}:22000:22000/tcp"
+      - "${BIND_ADDR:-127.0.0.1}:22000:22000/udp"
+    restart: unless-stopped
     logging:
       driver: json-file
       options:

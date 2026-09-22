@@ -55,6 +55,11 @@ const envSchema = z
     LLM_MAX_OUTPUT_TOKENS: positiveInt(2000),
     SUMMARY_CHARS_PER_TOKEN: z.coerce.number().min(1).default(3.5),
     SUMMARY_CACHE_DIR: z.string().default('/data/summaries'),
+
+    // Obsidian note export (one Markdown file per summary); unset = disabled
+    OBSIDIAN_EXPORT_DIR: optionalString,
+    // comma-separated tags written into the note's frontmatter
+    OBSIDIAN_TAGS: z.string().default('video,youtube'),
   })
   .superRefine((env, ctx) => {
     const trio = ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'OAUTH_REDIRECT_URI'] as const;
