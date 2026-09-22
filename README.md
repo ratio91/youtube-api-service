@@ -1,445 +1,336 @@
 # YouTube API Service
 
-A TypeScript-based microservice for fetching YouTube Watch Later videos and transcripts.
+A small TypeScript/Express microservice that fetches **YouTube transcripts** (via
+[yt-dlp](https://github.com/yt-dlp/yt-dlp)) and, optionally, **videos from any of
+your playlists** (via the YouTube Data API v3 with OAuth2). Built to be called from
+n8n over a private network and to feed a local LLM with clean transcript text.
 
 ## Features
 
-- OAuth2 authentication with YouTube Data API v3
-- Fetch all videos from Watch Later playlist
-- Get transcripts for individual or multiple videos
-- Basic authentication for API endpoints
-- Token persistence across container restarts
-- Health check endpoint
+- Transcripts for single videos or sequential batches, backed by a pinned yt-dlp
+  binary (no unofficial scraping libraries)
+- Language selection (`?lang=`), manual vs. auto-generated track reporting, and a
+  cleaned plain-text mode (`?format=text`) for LLM input
+- Precise error semantics so automations can react: `404` no captions, `503`
+  blocked/rate-limited (retry later), `500` everything else
+- Optional OAuth2 playlist access (list playlists, fetch all videos of a playlist)
+- **Transcript-only mode** when no OAuth credentials are configured
+- Honest `/health`: reports whether the stored refresh token still works and which
+  yt-dlp version is installed
+- Basic authentication on all data endpoints; single-host `docker compose` deployment
 
-## Prerequisites
+> **Watch Later is not accessible via the API.** YouTube removed API access to the
+> `WL` playlist in September 2016. See [Watch Later workaround](#watch-later-workaround).
 
-**Google Cloud Project with YouTube Data API v3 enabled**
-- Go to: https://console.cloud.google.com/
-- Create a new project or select an existing one
-- Enable YouTube Data API v3
-- Create OAuth 2.0 credentials (**Web application** type, not Desktop)
-- In "Authorized redirect URIs", add: `https://youtube-api.yourdomain.com/oauth/callback`
-  (Replace `yourdomain.com` with your actual domain)
-- Download credentials and note the Client ID and Client Secret
+## Modes
 
-**Note on OAuth verification:** You don't need to verify your app if you're the only user. When authorizing, Google will show "This app isn't verified" - just click "Advanced" → "Go to [your app name] (unsafe)" → Authorize. This is safe since you built the app and are authorizing your own data.
+| Env vars set | Mode | OAuth/playlist routes |
+|---|---|---|
+| only `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` | **transcript-only** | answer `503 { "error": "oauth disabled" }` |
+| + `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` (all three) | **full** | enabled |
 
-## Setup
+Setting only one or two of the OAuth variables is a configuration error and the
+service refuses to start, naming the missing ones.
 
-### 1. Configure Environment Variables
+## Configuration
 
-Copy the example env file and fill in your values:
+Copy `.env.example` to `.env` and fill it in. Empty values count as unset.
 
-```bash
-cp .env.example .env
-```
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` | yes | – | Credentials for all data endpoints |
+| `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` / `OAUTH_REDIRECT_URI` | all or none | – | Enables OAuth + playlist routes |
+| `DEFAULT_PLAYLIST_ID` | no | – | Fallback playlist for `GET /videos` |
+| `TOKEN_PATH` | no | `/data/tokens.json` | Where OAuth tokens are persisted |
+| `TRANSCRIPT_BATCH_DELAY_MS` | no | `3000` | Pause between videos in `POST /batch-transcripts` |
+| `TRANSCRIPT_BATCH_MAX` | no | `50` | Max `videoIds` per batch request |
+| `TRANSCRIPT_MAX_ATTEMPTS` | no | `2` | Attempts per video for rate-limit/timeout failures (bot checks are never retried) |
+| `TRANSCRIPT_RETRY_DELAY_MS` | no | `5000` | Pause before a retry |
+| `YTDLP_TIMEOUT_MS` | no | `90000` | Deadline for one yt-dlp run |
+| `YTDLP_PATH` | no | `yt-dlp` | Path to the yt-dlp binary |
+| `YTDLP_JS_RUNTIME` | no | `node` | Value for `yt-dlp --js-runtimes`; `none` omits the flag |
+| `HEALTH_OAUTH_CACHE_MS` | no | `300000` | How long `/health` caches the OAuth refresh check |
+| `PORT` | no | `3000` | Listen port (fixed to 3000 inside the compose setup) |
+| `BIND_ADDR`, `HOST_PORT`, `YTDLP_VERSION` | compose only | `127.0.0.1`, `3000`, pinned | Host-side settings, see [Deployment](#deployment-single-host-docker-compose) |
 
-Edit `.env`:
-```env
-YOUTUBE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-YOUTUBE_CLIENT_SECRET=your-client-secret
-OAUTH_REDIRECT_URI=https://youtube-api.yourdomain.com/oauth/callback
-DEFAULT_PLAYLIST_ID=PLxxxxxxxxxxxxxxxxxxxxxx
-BASIC_AUTH_USER=your-username
-BASIC_AUTH_PASS=your-password
-```
+### OAuth prerequisites (full mode only)
 
-`DEFAULT_PLAYLIST_ID` is optional — it's the fallback playlist for `GET /videos` when no `playlistId` query parameter is provided.
+Google Cloud project with **YouTube Data API v3** enabled → OAuth 2.0 credentials of
+type **Web application** → add `https://<your-host>/oauth/callback` to the authorized
+redirect URIs → put client ID, secret and that redirect URI into `.env`.
 
-The service validates its environment variables at startup and exits with a clear message listing any required variables that are missing.
+You do not need to publish/verify the app if you are its only user, but note the
+consequence: **in Google "Testing" mode refresh tokens expire after 7 days.** See
+[Token issues](#token-issues).
 
-### 2. Build the Docker Image
+## Deployment (single host, docker compose)
 
-```bash
-docker build -t youtube-api-service:latest .
-```
-
-### 3. Authorize the Application
-
-The service needs one-time OAuth authorization:
-
-1. **Get the authorization URL:**
-   ```bash
-   curl https://youtube-api.yourdomain.com/auth/url
-   ```
-
-2. **Visit the URL** in your browser and authorize the application
-   - Click through the "unverified app" warning (it's your own app)
-   - Grant permissions
-
-3. **Done.** Google redirects back to the service (`GET /oauth/callback`, the URL in `OAUTH_REDIRECT_URI`), which exchanges the code automatically and shows an HTML success page.
-
-The OAuth tokens will be saved in `/data/tokens.json` and persist across container restarts.
-
-**Manual fallback:** If Google's redirect can't reach the server, copy the `code` parameter from the redirect URL and submit it yourself:
-```bash
-curl -X POST https://youtube-api.yourdomain.com/auth/callback \
-  -H "Content-Type: application/json" \
-  -d '{"code": "YOUR_AUTHORIZATION_CODE"}'
-```
-
-## Deployment (Docker Swarm)
-
-A `docker-stack.yml` is included for Docker Swarm. Source your `.env` into the shell, then deploy:
+Intended for a machine on a **residential connection** (YouTube blocks transcript
+requests from many datacenter/VPS IP ranges) that other services reach over a
+private network such as Tailscale.
 
 ```bash
-set -a; source .env; set +a
-docker stack deploy -c docker-stack.yml youtube-api
+cp .env.example .env          # set BASIC_AUTH_*, leave OAuth empty for transcript-only mode
+# in .env: BIND_ADDR=<this host's Tailscale IP, 100.x.y.z>
+docker compose up -d --build
+curl http://127.0.0.1:3000/health   # from the host itself, or use the Tailscale IP
 ```
 
-- A named volume is mounted at `/data`, so OAuth tokens persist across restarts and re-deployments.
-- The stack file's Traefik labels and network references use placeholders (domain, network name) — adapt them to your setup before deploying.
+- The port is published **only on `BIND_ADDR`**, which defaults to `127.0.0.1`
+  (reachable from the host only). Set it to the host's Tailscale IP to make the
+  service reachable from the tailnet and nowhere else. No router port forwarding.
+- `./data` is bind-mounted to `/data` for OAuth tokens (unused in transcript-only mode).
+- A named volume keeps yt-dlp's cache between restarts.
+- The image bakes in the official standalone yt-dlp binary for the build platform
+  (`yt-dlp_musllinux` on Alpine, checksum-verified) and uses the image's Node 24 as
+  yt-dlp's JavaScript runtime. No Deno, no Python needed.
 
-## API Endpoints
+### How n8n calls it
 
-### Health Check
+n8n on another machine in the same tailnet uses an **HTTP Request** node with
+**Basic Auth** credentials and URLs like:
+
+```
+http://<tailscale-hostname-or-ip>:3000/transcript/<videoId>?format=text
+http://<tailscale-hostname-or-ip>:3000/batch-transcripts
+```
+
+Both hosts must be in the tailnet (the n8n host itself; containers on it reach
+Tailscale addresses through the host's routing). Nothing here is reachable from the
+public internet.
+
+### Updating yt-dlp
+
+YouTube changes regularly break older yt-dlp releases, so plan to rebuild. The
+version is a build argument (`YTDLP_VERSION` in `.env`, default pinned in the
+Dockerfile):
+
 ```bash
-GET /health
+# check https://github.com/yt-dlp/yt-dlp/releases, then
+sed -i 's/^YTDLP_VERSION=.*/YTDLP_VERSION=2026.xx.yy/' .env
+docker compose build && docker compose up -d
+curl -s http://127.0.0.1:3000/health | jq .transcripts   # shows the new version
 ```
-No authentication required. Returns service status and authorization state.
 
-**Response:**
+`yt-dlp -U` is deliberately not used: the binary lives in a read-only image layer
+and runs as a non-root user, so updates are reproducible image rebuilds.
+
+### Legacy: Docker Swarm + Traefik
+
+The previous VPS deployment file lives in `deploy/swarm/docker-stack.yml`. It is kept
+as a reference only (`cd deploy/swarm` before deploying; placeholders for domain,
+entrypoint, cert resolver and network must be adapted).
+
+## API
+
+All endpoints except `/health` require `Authorization: Basic base64(user:pass)`.
+
+### `GET /health` (no auth)
+
+Always answers HTTP `200`; the `status` field says whether the service is degraded,
+so a broken transcript backend shows up in monitoring without flapping the container.
+
 ```json
 {
   "status": "ok",
-  "authorized": true,
-  "timestamp": "2024-01-01T12:00:00.000Z"
-}
-```
-
-### OAuth Endpoints
-
-**Get Authorization URL**
-```bash
-GET /auth/url
-```
-
-Returns the OAuth authorization URL for first-time setup.
-
-**Response:**
-```json
-{
-  "authUrl": "https://accounts.google.com/o/oauth2/v2/auth?...",
-  "instructions": "Visit this URL in your browser to authorize the application. You will be redirected back automatically."
-}
-```
-
-**OAuth Redirect (automatic)**
-```bash
-GET /oauth/callback?code=...
-```
-
-This is where Google redirects after you authorize (it's the URL configured in `OAUTH_REDIRECT_URI`). The service exchanges the authorization code automatically and shows an HTML success page — no manual step needed.
-
-**Complete Authorization (manual fallback)**
-```bash
-POST /auth/callback
-Content-Type: application/json
-
-{
-  "code": "authorization_code_from_google"
-}
-```
-
-Use this only if the redirect can't reach the server.
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Authorization successful"
-}
-```
-
-### List Your Playlists
-```bash
-GET /playlists
-Authorization: Basic base64(username:password)
-```
-
-Returns all playlists in your YouTube channel.
-
-**Response:**
-```json
-{
-  "count": 15,
-  "playlists": [
-    {
-      "id": "PLxxxxxxxxxxxxxxxxxxxxxx",
-      "title": "My Playlist",
-      "description": "Playlist description",
-      "itemCount": 42,
-      "publishedAt": "2025-11-29T14:24:16Z"
-    },
-    {
-      "id": "PLyyyyyyyyyyyyyyyyyyyyyy",
-      "title": "Another Playlist",
-      "description": "",
-      "itemCount": 28,
-      "publishedAt": "2021-09-14T14:38:03Z"
-    }
-  ],
-  "timestamp": "2024-01-01T12:00:00.000Z"
-}
-```
-
-### Fetch Specific Playlist
-```bash
-GET /playlist/:playlistId
-Authorization: Basic base64(username:password)
-```
-
-Returns all videos from a specific playlist.
-
-**Example:**
-```bash
-curl -u username:password https://youtube-api.yourdomain.com/playlist/PLxxxxxxxxxxxxxxxxxxxxxx
-```
-
-**Response:**
-```json
-{
-  "playlistId": "PLxxxxxxxxxxxxxxxxxxxxxx",
-  "count": 42,
-  "videos": [
-    {
-      "videoId": "dQw4w9WgXcQ",
-      "title": "Video Title",
-      "channel": "Channel Name",
-      "channelId": "UC...",
-      "description": "Video description...",
-      "duration": "PT15M30S",
-      "publishedAt": "2023-01-01T00:00:00Z",
-      "thumbnails": {
-        "default": "https://...",
-        "medium": "https://...",
-        "high": "https://..."
-      }
-    }
-  ],
-  "timestamp": "2024-01-01T12:00:00.000Z"
-}
-```
-
-**Duration format:** ISO 8601 (e.g., "PT15M30S" = 15 minutes 30 seconds)
-
-### Fetch Videos (with optional playlist parameter)
-```bash
-GET /videos?playlistId=PLAYLIST_ID
-Authorization: Basic base64(username:password)
-```
-
-Returns videos from the specified playlist. If no `playlistId` query parameter is provided, the service falls back to the `DEFAULT_PLAYLIST_ID` environment variable. If neither is set, the endpoint returns `400`.
-
-**Example:**
-```bash
-curl -u username:password "https://youtube-api.yourdomain.com/videos?playlistId=PLxxxxxxxxxxxxxxxxxxxxxx"
-```
-
-### Get Single Transcript
-```bash
-GET /transcript/:videoId
-Authorization: Basic base64(username:password)
-```
-
-Returns the transcript for a specific video.
-
-**Response:**
-```json
-{
-  "videoId": "dQw4w9WgXcQ",
-  "transcript": [
-    {
-      "text": "Hello everyone",
-      "duration": 2500,
-      "offset": 0,
-      "lang": "en"
-    },
-    {
-      "text": "Welcome to this video",
-      "duration": 3000,
-      "offset": 2500,
-      "lang": "en"
-    }
-  ],
-  "timestamp": "2024-01-01T12:00:00.000Z"
-}
-```
-
-**Note:** `offset` and `duration` are in **milliseconds**. `lang` is the language code of the transcript track.
-
-**Note:** Transcripts may not be available for all videos (depends on whether subtitles exist).
-
-### Get Batch Transcripts
-```bash
-POST /batch-transcripts
-Authorization: Basic base64(username:password)
-Content-Type: application/json
-
-{
-  "videoIds": ["dQw4w9WgXcQ", "jNQXAC9IVRw"]
-}
-```
-
-Returns transcripts for multiple videos. If a transcript fails to fetch, it will be `null`.
-
-**Response:**
-```json
-{
+  "mode": "transcript-only",
+  "oauth": "disabled",
   "transcripts": {
-    "dQw4w9WgXcQ": [
-      {
-        "text": "Hello everyone",
-        "duration": 2500,
-        "offset": 0,
-        "lang": "en"
-      }
-    ],
-    "jNQXAC9IVRw": null
+    "backend": "yt-dlp",
+    "version": "2026.08.19",
+    "ok": true,
+    "jsRuntime": { "name": "node", "version": "v24.21.0", "present": true }
   },
-  "timestamp": "2024-01-01T12:00:00.000Z"
+  "authorized": false,
+  "timestamp": "2026-09-22T12:00:00.000Z"
 }
 ```
 
-## Important Notes
+| Field | Values | Meaning |
+|---|---|---|
+| `status` | `ok`, `degraded` | `degraded` when yt-dlp cannot be executed |
+| `mode` | `full`, `transcript-only` | Whether OAuth is configured |
+| `oauth` | `disabled`, `ok`, `expired`, `unauthorized`, `error` | `ok` only if the stored refresh token **actually refreshed** (checked against Google, cached `HEALTH_OAUTH_CACHE_MS`). `expired` = Google answered `invalid_grant`. `unauthorized` = OAuth configured but no token stored yet. `error` = check failed for another reason (see `oauthDetail.error`). |
+| `oauthDetail` | object | `{ status, checkedAt, error? }`, present in full mode |
+| `transcripts.version` | string or `null` | Output of `yt-dlp --version`; `null` if the binary failed to run (`transcripts.error` says why) |
+| `transcripts.jsRuntime` | object | Runtime yt-dlp is told to use for media-URL deciphering (not needed for captions) |
+| `authorized` | boolean | Legacy field: `true` only when `oauth` is `ok` |
 
-### Watch Later Limitation
-**YouTube deprecated API access to Watch Later playlists in September 2016.** The special playlist ID 'WL' returns empty results for all users. This is a YouTube API limitation, not a bug in this service.
+### Transcripts
 
-**Workarounds:**
-1. Use the `/playlists` endpoint to list your available playlists
-2. Use any of your public or private playlists
-3. Create a dedicated playlist for videos you want to process
+#### `GET /transcript/:videoId[?lang=xx][&format=json|text]`
 
-See: [YouTube API Revision History](https://developers.google.com/youtube/v3/revision_history#september-15-2016)
+Track selection order without `lang`: **manual captions in the video's original
+language → auto-generated captions in that language → any manual track (en, de
+preferred) → any auto-generated track.** Auto-*translated* tracks are never served.
+With `lang`, manual then auto in that language is used (`en-US` matches `en` and
+vice versa); otherwise `404` with the languages that do exist.
 
-## Usage with n8n
-
-### Example: List Available Playlists
-
-1. **HTTP Request Node**
-   - Method: GET
-   - URL: `https://youtube-api.yourdomain.com/playlists`
-   - Authentication: Basic Auth
-   - Credentials: Use your BASIC_AUTH_USER and BASIC_AUTH_PASS
-
-2. **Process Playlists**
-   - The response contains all your playlists with their IDs
-   - Use n8n's built-in functions to filter or select the playlist you want
-
-### Example: Fetch Videos from Specific Playlist
-
-1. **HTTP Request Node**
-   - Method: GET
-   - URL: `https://youtube-api.yourdomain.com/playlist/YOUR_PLAYLIST_ID`
-   - Authentication: Basic Auth
-   - Credentials: Use your BASIC_AUTH_USER and BASIC_AUTH_PASS
-
-2. **Process Videos**
-   - The response will contain all videos from that playlist
-   - Use n8n's built-in functions to filter, transform, or store the data
-
-### Example: Get Transcripts Workflow
-
-1. **HTTP Request Node** - Fetch playlist videos
-2. **Function Node** - Extract video IDs (limit to batches of 10-20 to avoid timeouts)
-3. **HTTP Request Node**
-   - Method: POST
-   - URL: `https://youtube-api.yourdomain.com/batch-transcripts`
-   - Authentication: Basic Auth
-   - Body: `{ "videoIds": [{{ $json.videoIds }}] }`
-4. **Process transcripts** - Send to LLM for summarization, store in DB, create notes, etc.
-
-### Example: Complete Processing Pipeline
-```
-[Schedule Trigger - Daily]
-    ↓
-[HTTP: List Playlists]
-    ↓
-[Filter: Select target playlist]
-    ↓
-[HTTP: Fetch Videos from Playlist]
-    ↓
-[Filter: New videos only]
-    ↓
-[HTTP: Get Transcripts (batch)]
-    ↓
-[LLM: Summarize & Categorize]
-    ↓
-[Store in Database]
-    ↓
-[Create Obsidian/Evernote Notes]
+```json
+{
+  "videoId": "lXUZvyajciY",
+  "lang": "en",
+  "kind": "manual",
+  "transcript": [
+    { "text": "Today I'm speaking with Andrej Karpathy.", "duration": 4400, "offset": 48560, "lang": "en" }
+  ],
+  "timestamp": "2026-09-22T12:00:00.000Z"
+}
 ```
 
-### Tips for n8n Workflows
+`offset` and `duration` are **milliseconds**. `kind` is `manual` or `auto`.
 
-- Store your playlist IDs in n8n environment variables for easy reuse
-- Use the `/playlists` endpoint once to discover your playlist IDs
-- For large playlists (600+ videos), consider processing in batches
-- Cache video data to avoid re-fetching unchanged playlists
+`?format=text` returns one cleaned string instead of the array (auto-caption rolling
+repeats removed, sound tags such as `[Music]` dropped, whitespace normalised):
+
+```json
+{ "videoId": "fW4SwcMQYdA", "lang": "de", "kind": "auto", "text": "einen wunderschönen guten Abend. Wir freuen uns sehr …", "timestamp": "…" }
+```
+
+**Error responses** (`code` is machine-readable, `reason` is human-readable):
+
+| HTTP | Body | When |
+|---|---|---|
+| `404` | `{ available: false, code: "NO_CAPTIONS", reason, retryable: false }` | Video has no caption tracks at all |
+| `404` | `{ available: false, code: "LANG_UNAVAILABLE", availableLanguages: { manual: [...], auto: [...] }, ... }` | Requested `lang` has no track |
+| `503` | `{ retryable: true, code: "BLOCKED" \| "RATE_LIMITED" \| "TIMEOUT", reason }` | Bot check, IP block, HTTP 429, PO-token discard, or yt-dlp deadline hit — try again later |
+| `500` | `{ error, reason, code: "VIDEO_UNAVAILABLE" \| "BACKEND_FAILURE", retryable: false }` | Private/removed video, yt-dlp missing or broken, unexpected error |
+| `400` | `{ error }` | Invalid video id, `lang` or `format` |
+
+All YouTube traffic is serialised inside the service, so parallel calls never burst.
+
+#### `POST /batch-transcripts`
+
+```json
+{ "videoIds": ["lXUZvyajciY", "fW4SwcMQYdA"], "lang": "de", "format": "text" }
+```
+
+`lang` and `format` are optional and apply to every video. Videos are processed
+**sequentially** with `TRANSCRIPT_BATCH_DELAY_MS` between them; at most
+`TRANSCRIPT_BATCH_MAX` ids per request (`400` otherwise). Failed videos stay `null`
+in `transcripts` and get an entry in `errors` with the same shape as the single-video
+error bodies. **After the first `BLOCKED`/`RATE_LIMITED` result the remaining videos
+are not attempted** and are reported as `code: "SKIPPED", retryable: true`, so one bad
+answer does not turn into twenty more probes.
+
+```json
+{
+  "transcripts": { "lXUZvyajciY": [ ... ], "fW4SwcMQYdA": null },
+  "errors": { "fW4SwcMQYdA": { "code": "NO_CAPTIONS", "reason": "…", "retryable": false, "status": 404, "available": false } },
+  "tracks": { "lXUZvyajciY": { "lang": "en", "kind": "manual" } },
+  "timestamp": "2026-09-22T12:00:00.000Z"
+}
+```
+
+Keep batches small enough for your HTTP client's timeout: each video costs roughly
+the yt-dlp run (a few seconds) plus the configured delay.
+
+### OAuth endpoints (full mode; `503 { "error": "oauth disabled" }` otherwise)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /auth/url` | Returns the Google authorization URL for first-time setup |
+| `GET /oauth/callback?code=…` | Where Google redirects; exchanges the code and stores tokens |
+| `POST /auth/callback { "code": "…" }` | Manual fallback if the redirect cannot reach the server |
+
+Authorization always requests a fresh refresh token (`prompt: consent`); refreshed
+access tokens are written back to `TOKEN_PATH`.
+
+### Playlist endpoints (full mode, basic auth)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /playlists` | All playlists of the authorized channel (`id`, `title`, `itemCount`, …) |
+| `GET /playlist/:playlistId` | All videos of a playlist (`videoId`, `title`, `channel`, ISO 8601 `duration`, thumbnails, …) |
+| `GET /videos[?playlistId=…]` | Same, falling back to `DEFAULT_PLAYLIST_ID`; `400` if neither is given |
+
+## Important notes
+
+### Watch Later workaround
+
+The `WL` playlist returns nothing through the API (removed September 2016, see the
+[revision history](https://developers.google.com/youtube/v3/revision_history#september-15-2016)).
+Use an **inbox playlist** instead:
+
+1. Create a normal (private) playlist, e.g. "Inbox".
+2. Move or copy videos from Watch Later into it (YouTube UI: select all → *Add to
+   playlist* → Inbox; then clear Watch Later).
+3. Process the inbox via the API: read its items, fetch transcripts, sort into topic
+   playlists by adding the item there, then remove it from the inbox.
+
+### YouTube Data API quota
+
+| Operation | Cost |
+|---|---|
+| Read playlist items | 1 unit per page of up to 50 items |
+| Read video details (`videos.list`) | 1 unit per page of up to 50 ids |
+| Add a playlist item | 50 units |
+| Remove a playlist item | 50 units |
+| Daily quota | 10,000 units, reset at midnight Pacific Time |
+
+Reading is nearly free; **sorting 100 videos into topic playlists (add + remove) costs
+10,000 units — a whole day**. Transcripts do not use the Data API at all.
+
+### Token issues
+
+- **Google "Testing" mode: refresh tokens expire after 7 days.** The service then
+  logs `invalid_grant`, `/health` reports `"oauth": "expired"`, and playlist calls
+  fail. **Fix: re-authorize** — `GET /auth/url`, open the URL, approve. Deleting
+  `tokens.json` alone does not help; a new consent is required. Publishing the OAuth
+  app removes the 7-day limit but requires Google's verification.
+- `"oauth": "unauthorized"` means no token has been stored yet: run the flow once.
+- Access tokens refresh automatically; the refreshed tokens are persisted.
+
+## n8n usage
+
+- **Transcript for one video:** HTTP Request → GET
+  `http://<tailscale-host>:3000/transcript/{{ $json.videoId }}?format=text`, Basic Auth.
+  On status `404` skip the video for good; on `503` leave it for the next run; `500`
+  needs a look.
+- **Batch:** POST `/batch-transcripts` with 10–20 ids; iterate over `transcripts`,
+  re-queue ids whose `errors[id].retryable` is `true`.
+- **Summaries:** feed `text` to your local LLM (OpenAI-compatible endpoint) in the
+  next node.
 
 ## Development
 
-### Local Development
-
 ```bash
-npm install
-npm run dev
-```
-
-The service will start on `http://localhost:3000`
-
-`package-lock.json` is committed — use `npm ci` for reproducible installs.
-
-### Build
-
-```bash
+npm ci
+npm run dev        # ts-node, http://localhost:3000 (needs yt-dlp on PATH for transcripts)
 npm run build
+npm test           # vitest: 87 unit/route tests, no network
 ```
 
-### Docker Build
+`package-lock.json` is committed — use `npm ci`.
+
+### Field test checklist (run from a residential IP)
 
 ```bash
-docker build -t youtube-api-service:latest .
+H=http://127.0.0.1:3000; A=user:pass
+curl -s $H/health | jq .
+curl -su $A "$H/transcript/lXUZvyajciY" | jq '{lang,kind,n:(.transcript|length)}'   # English, manual
+curl -su $A "$H/transcript/fW4SwcMQYdA" | jq '{lang,kind}'                           # German, auto
+curl -su $A "$H/transcript/Me-kZi4xkEs" | jq '{lang,kind}'                           # auto (was a false "disabled" with the old backend)
+curl -su $A "$H/transcript/fW4SwcMQYdA?format=text" | jq -r .text | head -c 600     # readable, no repeats
+curl -su $A "$H/transcript/lXUZvyajciY?lang=de" | jq .                              # 404 LANG_UNAVAILABLE
+curl -su $A "$H/transcript/ScMzIvxBSi4" | jq .                                      # 404 NO_CAPTIONS (public video, no tracks)
+curl -su $A -o /dev/null -w '%{http_code}\n' "$H/transcript/aaaaaaaaaaa"            # 500 VIDEO_UNAVAILABLE
 ```
 
 ## Troubleshooting
 
-### Service Exits at Startup
-Environment variables are validated at startup. If required variables are missing, the service exits with a message listing exactly which ones — add them to your `.env` (or stack environment) and restart.
-
-### Token Issues
-If authorization fails or tokens become invalid:
-1. Delete the token file (in your volume or `/data/tokens.json`)
-2. Restart the service
-3. Re-run the authorization flow (`/auth/url` → visit the URL → automatic redirect)
-
-Re-authorization always requests a fresh refresh token (`prompt: 'consent'`), so you'll get a working refresh token even if Google issued one for this client before. Refreshed access tokens are persisted back to `/data/tokens.json` automatically.
-
-### Transcript Not Available
-Some videos don't have transcripts available. This happens when:
-- The video has no captions/subtitles
-- Captions are disabled by the uploader
-- The video is very new and auto-captions haven't been generated yet
-
-The `/batch-transcripts` endpoint handles this gracefully by returning `null` for failed videos.
-
-### Transcripts Fail in Production but Work Locally
-Transcript fetching scrapes YouTube's web player, and YouTube blocks many datacenter/VPS IP ranges. If transcripts return errors or empty results on your server but work from your local machine, the server's IP is likely blocked. In that case, consider switching to a maintained alternative such as youtubei.js or yt-dlp.
-
-### YouTube API Quotas
-YouTube Data API v3 has daily quota limits. If you hit the quota:
-- Wait until the quota resets (midnight Pacific Time)
-- Reduce the frequency of your n8n workflows
-- Consider caching video lists and only fetching new videos
-
-## Notes
-
-- OAuth tokens are stored in `/data/tokens.json` inside the container
-- Access tokens refresh automatically when they expire and are persisted back to `/data/tokens.json`
-- YouTube API has quotas - be mindful of rate limits when scheduling workflows
-- Transcripts may not be available for all videos
-- Video duration format is ISO 8601 (e.g., "PT15M30S" = 15 minutes 30 seconds); transcript `offset`/`duration` are in milliseconds
+- **Service exits at startup** — the log lists the missing/invalid variables.
+- **`/health` says `degraded`** — `transcripts.error` tells you why yt-dlp could not
+  run (`ENOENT` = binary missing; rebuild the image).
+- **Every transcript answers `503 BLOCKED`** — YouTube is bot-checking this IP.
+  Wait, keep the batch delay generous, and make sure the machine is on a residential
+  connection. If the reason mentions a *PO Token*, check the
+  [yt-dlp PO-Token guide](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide).
+- **Transcripts suddenly fail with `500 BACKEND_FAILURE`** after working for months —
+  YouTube changed something; [update yt-dlp](#updating-yt-dlp).
+- **`"oauth": "expired"`** — see [Token issues](#token-issues).
+- **Logs** are one JSON line per event (`docker compose logs -f youtube-api`);
+  `transcript.ok` lines carry per-phase timings (`ms.ytdlp`, `ms.fetch`, `ms.parse`).
 
 ## License
 

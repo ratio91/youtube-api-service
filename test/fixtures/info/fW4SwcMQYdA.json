@@ -1,0 +1,67 @@
+{
+  "id": "fW4SwcMQYdA",
+  "title": "Nobelpreis-Vortrag von Anton Zeilinger: Eine Reise durch die wunderbare Welt der Quanten",
+  "language": "de-DE",
+  "subtitles": {},
+  "automatic_captions": {
+    "en": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&tlang=en&fmt=json3",
+        "name": "English"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&tlang=en&fmt=vtt",
+        "name": "English"
+      }
+    ],
+    "de-orig": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&fmt=json3",
+        "name": "German (Original)"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&fmt=vtt",
+        "name": "German (Original)"
+      }
+    ],
+    "de": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&fmt=json3",
+        "name": "German"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&fmt=vtt",
+        "name": "German"
+      }
+    ],
+    "es": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&tlang=es&fmt=json3",
+        "name": "Spanish"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=fW4SwcMQYdA&lang=de&kind=asr&tlang=es&fmt=vtt",
+        "name": "Spanish"
+      }
+    ]
+  },
+  "formats": [
+    {
+      "format_id": "sb2",
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "nocaps00000",
+  "title": "Synthetic: no caption tracks",
+  "language": "en",
+  "subtitles": {},
+  "automatic_captions": {},
+  "formats": [
+    {
+      "format_id": "18",
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (fixture)"
+      }
+    }
+  ]
+}

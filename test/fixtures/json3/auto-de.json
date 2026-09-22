@@ -1,0 +1,550 @@
+{
+ "wireMagic": "pb3",
+ "events": [
+  {
+   "tStartMs": 0,
+   "dDurationMs": 4658468,
+   "id": 1,
+   "wpWinPosId": 1,
+   "wsWinStyleId": 1
+  },
+  {
+   "tStartMs": 7399,
+   "dDurationMs": 4481,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "einen",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " wunderschönen",
+     "tOffsetMs": 400,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " guten",
+     "tOffsetMs": 1120,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Abend.",
+     "tOffsetMs": 1521,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Wir",
+     "tOffsetMs": 2120,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 9750,
+   "dDurationMs": 2130,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 9760,
+   "dDurationMs": 3759,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "freuen",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " uns",
+     "tOffsetMs": 520,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " sehr",
+     "tOffsetMs": 959,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " und",
+     "tOffsetMs": 1280,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " ich",
+     "tOffsetMs": 1480,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " darf",
+     "tOffsetMs": 1600,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Sie",
+     "tOffsetMs": 1799,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " sehr",
+     "tOffsetMs": 1999,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 11870,
+   "dDurationMs": 1649,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 11880,
+   "dDurationMs": 3639,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "herzlich",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " begrüßen",
+     "tOffsetMs": 400,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " im",
+     "tOffsetMs": 839,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Audimx",
+     "tOffsetMs": 960,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " der",
+     "tOffsetMs": 1480,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 13509,
+   "dDurationMs": 2010,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 13519,
+   "dDurationMs": 4441,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "Universität",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Wien.",
+     "tOffsetMs": 681,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Wir",
+     "tOffsetMs": 1401,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " freuen",
+     "tOffsetMs": 1481,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " uns",
+     "tOffsetMs": 1721,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " über",
+     "tOffsetMs": 1881,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 15509,
+   "dDurationMs": 2451,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 15519,
+   "dDurationMs": 5680,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "das",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " überwältigende",
+     "tOffsetMs": 160,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Interesse",
+     "tOffsetMs": 1081,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " hier",
+     "tOffsetMs": 1840,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " im",
+     "tOffsetMs": 2201,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 17950,
+   "dDurationMs": 3249,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 17960,
+   "dDurationMs": 7120,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "Audimx,",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " aber",
+     "tOffsetMs": 1000,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " auch",
+     "tOffsetMs": 1319,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " über",
+     "tOffsetMs": 2000,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " alle,",
+     "tOffsetMs": 2280,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " die",
+     "tOffsetMs": 2600,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " heute",
+     "tOffsetMs": 2760,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 21189,
+   "dDurationMs": 3891,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 21199,
+   "dDurationMs": 5840,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "online",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " mit",
+     "tOffsetMs": 401,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " dabei",
+     "tOffsetMs": 1121,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " sind.",
+     "tOffsetMs": 1641,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 25070,
+   "dDurationMs": 1969,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 25080,
+   "dDurationMs": 4039,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "Professor",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Anton",
+     "tOffsetMs": 519,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Zeilinger",
+     "tOffsetMs": 880,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " nimmt",
+     "tOffsetMs": 1439,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " uns",
+     "tOffsetMs": 1720,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 27029,
+   "dDurationMs": 2090,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 27039,
+   "dDurationMs": 5321,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "heute",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " mit",
+     "tOffsetMs": 361,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " auf",
+     "tOffsetMs": 681,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " eine",
+     "tOffsetMs": 921,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Reise",
+     "tOffsetMs": 1201,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " in",
+     "tOffsetMs": 1761,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " die",
+     "tOffsetMs": 1961,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 29109,
+   "dDurationMs": 3251,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 29119,
+   "dDurationMs": 4681,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "wunderbare",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Welt",
+     "tOffsetMs": 640,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " der",
+     "tOffsetMs": 1240,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Quanten",
+     "tOffsetMs": 1480,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " und",
+     "tOffsetMs": 2441,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " ich",
+     "tOffsetMs": 2681,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " darf",
+     "tOffsetMs": 3000,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 32350,
+   "dDurationMs": 1450,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 32360,
+   "dDurationMs": 4600,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "Rektor",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " Schütze",
+     "tOffsetMs": 320,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " jetzt",
+     "tOffsetMs": 719,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " bitten,",
+     "tOffsetMs": 960,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " die",
+     "tOffsetMs": 1280,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 33790,
+   "dDurationMs": 3170,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 33800,
+   "dDurationMs": 3160,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "Veranstaltung",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " zu",
+     "tOffsetMs": 640,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " eröffnen.",
+     "tOffsetMs": 759,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 64710,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  }
+ ]
+}

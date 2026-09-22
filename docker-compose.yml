@@ -1,0 +1,46 @@
+# Single-host deployment (home machine, no Swarm, no Traefik).
+#
+#   cp .env.example .env   # fill in BASIC_AUTH_*, set BIND_ADDR to the host's Tailscale IP
+#   docker compose up -d --build
+#
+# Not exposed to the internet: the port is published only on BIND_ADDR, which
+# defaults to 127.0.0.1 (unreachable from other machines) until you set it to the
+# host's Tailscale address (100.x.y.z). n8n then calls http://<tailscale-host>:3000
+# with basic auth. No router port forwarding is involved.
+#
+# Update yt-dlp: bump YTDLP_VERSION in .env (or pass --build-arg) and run
+#   docker compose build && docker compose up -d
+services:
+  youtube-api:
+    build:
+      context: .
+      args:
+        YTDLP_VERSION: ${YTDLP_VERSION:-2026.08.19}
+    image: youtube-api-service:latest
+    env_file: .env
+    environment:
+      # The container always listens on 3000; choose the host port via HOST_PORT.
+      PORT: "3000"
+      TOKEN_PATH: /data/tokens.json
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000"
+    volumes:
+      # OAuth tokens (only used when the OAuth env vars are set)
+      - ./data:/data
+      # yt-dlp cache (player/challenge data); speeds up repeated calls
+      - ytdlp-cache:/home/node/.cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ytdlp-cache:

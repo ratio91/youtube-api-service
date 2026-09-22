@@ -2,10 +2,9 @@ import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import * as fs from 'fs';
 import * as path from 'path';
-import { YoutubeTranscript } from 'youtube-transcript';
-import { config } from './config';
+import { OAuthConfig } from './config';
+import { log, errorMessage } from './log';
 
-const TOKEN_PATH = config.TOKEN_PATH;
 const SCOPES = ['https://www.googleapis.com/auth/youtube.readonly'];
 
 interface VideoInfo {
@@ -23,23 +22,22 @@ interface VideoInfo {
   };
 }
 
-interface TranscriptEntry {
-  text: string;
-  duration: number; // milliseconds (youtube-transcript >= 1.3)
-  offset: number; // milliseconds
-  lang?: string;
+export type OAuthStatus = 'ok' | 'expired' | 'unauthorized' | 'error';
+
+export interface OAuthCheck {
+  status: OAuthStatus;
+  checkedAt: string;
+  error?: string;
 }
 
 export class YouTubeService {
   private oauth2Client: OAuth2Client;
   private youtube: any;
+  private readonly tokenPath: string;
 
-  constructor() {
-    this.oauth2Client = new google.auth.OAuth2(
-      config.YOUTUBE_CLIENT_ID,
-      config.YOUTUBE_CLIENT_SECRET,
-      config.OAUTH_REDIRECT_URI
-    );
+  constructor(oauth: OAuthConfig, tokenPath: string) {
+    this.tokenPath = tokenPath;
+    this.oauth2Client = new google.auth.OAuth2(oauth.clientId, oauth.clientSecret, oauth.redirectUri);
 
     // Persist refreshed access tokens; keep the existing refresh_token
     // when the event doesn't include a new one.
@@ -52,7 +50,7 @@ export class YouTubeService {
         this.oauth2Client.setCredentials(merged);
         this.saveTokens(merged);
       } catch (error) {
-        console.error('Error persisting refreshed tokens:', error);
+        log('error', 'oauth.persist_failed', { error: errorMessage(error) });
       }
     });
 
@@ -66,28 +64,28 @@ export class YouTubeService {
 
   private loadTokens() {
     try {
-      if (fs.existsSync(TOKEN_PATH)) {
-        const tokens = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'));
+      if (fs.existsSync(this.tokenPath)) {
+        const tokens = JSON.parse(fs.readFileSync(this.tokenPath, 'utf-8'));
         this.oauth2Client.setCredentials(tokens);
-        console.log('Loaded existing tokens from', TOKEN_PATH);
+        log('info', 'oauth.tokens_loaded', { path: this.tokenPath });
       } else {
-        console.log('No existing tokens found. Authorization needed.');
+        log('info', 'oauth.no_tokens', { path: this.tokenPath });
       }
     } catch (error) {
-      console.error('Error loading tokens:', error);
+      log('error', 'oauth.tokens_load_failed', { path: this.tokenPath, error: errorMessage(error) });
     }
   }
 
   private saveTokens(tokens: any) {
     try {
-      const dir = path.dirname(TOKEN_PATH);
+      const dir = path.dirname(this.tokenPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens, null, 2));
-      console.log('Tokens saved to', TOKEN_PATH);
+      fs.writeFileSync(this.tokenPath, JSON.stringify(tokens, null, 2));
+      log('info', 'oauth.tokens_saved', { path: this.tokenPath });
     } catch (error) {
-      console.error('Error saving tokens:', error);
+      log('error', 'oauth.tokens_save_failed', { path: this.tokenPath, error: errorMessage(error) });
       throw error;
     }
   }
@@ -106,9 +104,36 @@ export class YouTubeService {
     this.saveTokens(tokens);
   }
 
+  /** Cheap local check: does a stored access token exist? Not proof it still works. */
   isAuthorized(): boolean {
     const credentials = this.oauth2Client.credentials;
     return !!(credentials && credentials.access_token);
+  }
+
+  hasRefreshToken(): boolean {
+    return !!this.oauth2Client.credentials?.refresh_token;
+  }
+
+  /**
+   * Actually exchange the refresh token for a new access token. Google answers
+   * `invalid_grant` once a Testing-mode refresh token has expired (7 days).
+   * `refreshAccessToken()` is marked deprecated in google-auth-library 9.15.1 but
+   * is the only public method that forces a refresh regardless of expiry.
+   */
+  async verifyRefresh(): Promise<OAuthCheck> {
+    const checkedAt = new Date().toISOString();
+    if (!this.hasRefreshToken()) {
+      return { status: 'unauthorized', checkedAt };
+    }
+    try {
+      await this.oauth2Client.refreshAccessToken();
+      return { status: 'ok', checkedAt };
+    } catch (error) {
+      const message = errorMessage(error);
+      const status: OAuthStatus = /invalid_grant/i.test(message) ? 'expired' : 'error';
+      log('warn', 'oauth.refresh_failed', { status, error: message });
+      return { status, checkedAt, error: message };
+    }
   }
 
   async fetchPlaylistVideos(playlistId: string): Promise<VideoInfo[]> {
@@ -120,19 +145,15 @@ export class YouTubeService {
     let pageToken: string | undefined = undefined;
 
     try {
-      console.log(`Fetching playlist: ${playlistId}`);
+      log('info', 'playlist.fetch', { playlistId });
 
-      // Fetch all videos from the playlist
       do {
-        console.log('Fetching playlist page, token:', pageToken);
         const playlistResponse: any = await this.youtube.playlistItems.list({
           part: ['snippet', 'contentDetails'],
           playlistId: playlistId,
           maxResults: 50,
           pageToken: pageToken,
         });
-
-        console.log('Playlist response items:', playlistResponse.data.items?.length || 0);
 
         if (!playlistResponse.data.items || playlistResponse.data.items.length === 0) {
           break;
@@ -142,7 +163,6 @@ export class YouTubeService {
           (item: any) => item.contentDetails.videoId
         );
 
-        // Get detailed video information
         const videoResponse: any = await this.youtube.videos.list({
           part: ['snippet', 'contentDetails'],
           id: videoIds.join(','),
@@ -170,7 +190,7 @@ export class YouTubeService {
 
       return videos;
     } catch (error: any) {
-      console.error(`Error fetching playlist ${playlistId}:`, error);
+      log('error', 'playlist.fetch_failed', { playlistId, error: errorMessage(error) });
       throw new Error(`Failed to fetch playlist: ${error.message}`);
     }
   }
@@ -189,50 +209,8 @@ export class YouTubeService {
 
       return playlistsResponse.data.items || [];
     } catch (error: any) {
-      console.error('Error fetching playlists:', error);
+      log('error', 'playlists.list_failed', { error: errorMessage(error) });
       throw new Error(`Failed to fetch playlists: ${error.message}`);
     }
-  }
-
-  async getTranscript(videoId: string): Promise<TranscriptEntry[]> {
-    // YouTube intermittently soft-blocks transcript requests from server IPs
-    // (reported as "Transcript is disabled"), so retry before giving up.
-    const maxAttempts = 4;
-    let lastError: any;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-        return transcript.map((entry: any) => ({
-          text: entry.text,
-          duration: entry.duration,
-          offset: entry.offset,
-          lang: entry.lang,
-        }));
-      } catch (error: any) {
-        lastError = error;
-        console.error(`Error fetching transcript for ${videoId} (attempt ${attempt}/${maxAttempts}):`, error.message);
-        if (attempt < maxAttempts) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-        }
-      }
-    }
-
-    throw new Error(`Failed to fetch transcript: ${lastError.message}`);
-  }
-
-  async getBatchTranscripts(videoIds: string[]): Promise<{ [videoId: string]: TranscriptEntry[] | null }> {
-    const results: { [videoId: string]: TranscriptEntry[] | null } = {};
-
-    for (const videoId of videoIds) {
-      try {
-        results[videoId] = await this.getTranscript(videoId);
-      } catch (error) {
-        console.error(`Failed to get transcript for ${videoId}`);
-        results[videoId] = null;
-      }
-    }
-
-    return results;
   }
 }

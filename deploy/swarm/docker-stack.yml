@@ -1,8 +1,10 @@
-# Docker Swarm stack file for youtube-api-service.
+# LEGACY: Docker Swarm + Traefik stack file for the old VPS deployment.
+# The supported single-host setup is ../../docker-compose.yml (home machine + Tailscale).
 #
-# Deploy standalone with (BASE_DOMAIN must be set in the shell):
+# Deploy standalone FROM THIS DIRECTORY (relative paths below resolve against the
+# CWD at deploy time; BASE_DOMAIN must be set in the shell):
 #
-#   set -a; source .env; set +a; docker stack deploy -c docker-stack.yml youtube-api
+#   cd deploy/swarm && set -a; source .env; set +a; docker stack deploy -c docker-stack.yml youtube-api
 #
 # If your host already runs a combined stack, copy the service block below
 # into it instead and adjust the env_file/volume paths.

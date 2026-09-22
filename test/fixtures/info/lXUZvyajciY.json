@@ -1,0 +1,102 @@
+{
+  "id": "lXUZvyajciY",
+  "title": "Andrej Karpathy — “We’re summoning ghosts, not building animals”",
+  "language": "en",
+  "subtitles": {
+    "en": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&fmt=json3",
+        "name": "English"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&fmt=vtt",
+        "name": "English"
+      }
+    ],
+    "es": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=es&fmt=json3",
+        "name": "Spanish"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=es&fmt=vtt",
+        "name": "Spanish"
+      }
+    ]
+  },
+  "automatic_captions": {
+    "en": [
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY",
+        "protocol": "m3u8_native"
+      },
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&fmt=json3",
+        "name": "English"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&fmt=vtt",
+        "name": "English"
+      }
+    ],
+    "es": [
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY",
+        "protocol": "m3u8_native"
+      },
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&tlang=es&fmt=json3",
+        "name": "Spanish"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&tlang=es&fmt=vtt",
+        "name": "Spanish"
+      }
+    ],
+    "en-orig": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&fmt=json3",
+        "name": "English (Original)"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&fmt=vtt",
+        "name": "English (Original)"
+      }
+    ],
+    "de": [
+      {
+        "ext": "json3",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&tlang=de&fmt=json3",
+        "name": "German"
+      },
+      {
+        "ext": "vtt",
+        "url": "https://www.youtube.com/api/timedtext?v=lXUZvyajciY&lang=en&kind=asr&tlang=de&fmt=vtt",
+        "name": "German"
+      }
+    ]
+  },
+  "formats": [
+    {
+      "format_id": "sb3",
+      "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-us,en;q=0.5",
+        "Sec-Fetch-Mode": "navigate"
+      }
+    }
+  ]
+}

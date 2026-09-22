@@ -1,0 +1,113 @@
+{
+ "wireMagic": "pb3",
+ "events": [
+  {
+   "tStartMs": 48560,
+   "dDurationMs": 4400,
+   "segs": [
+    {
+     "utf8": "Today I'm speaking with Andrej Karpathy.\nAndrej, why do you say that this will be  "
+    }
+   ]
+  },
+  {
+   "tStartMs": 52960,
+   "dDurationMs": 5520,
+   "segs": [
+    {
+     "utf8": "the decade of agents and not the year of agents?\nFirst of all, thank you for having me here. I'm  "
+    }
+   ]
+  },
+  {
+   "tStartMs": 58480,
+   "dDurationMs": 4528,
+   "segs": [
+    {
+     "utf8": "excited to be here. The quote you've just \nmentioned, \"It's the decade of agents,\"  "
+    }
+   ]
+  },
+  {
+   "tStartMs": 63008,
+   "dDurationMs": 6512,
+   "segs": [
+    {
+     "utf8": "is actually a reaction to a pre-existing quote.\nI'm not actually sure who said this but they were  "
+    }
+   ]
+  },
+  {
+   "tStartMs": 69520,
+   "dDurationMs": 5200,
+   "segs": [
+    {
+     "utf8": "alluding to this being the year of agents with \nrespect to LLMs and how they were going to evolve. "
+    }
+   ]
+  },
+  {
+   "tStartMs": 76240,
+   "dDurationMs": 4240,
+   "segs": [
+    {
+     "utf8": "I was triggered by that because there's some \nover-prediction going on in the industry. "
+    }
+   ]
+  },
+  {
+   "tStartMs": 81280,
+   "dDurationMs": 4240,
+   "segs": [
+    {
+     "utf8": "In my mind, this is more accurately \ndescribed as the decade of agents. "
+    }
+   ]
+  },
+  {
+   "tStartMs": 85520,
+   "dDurationMs": 2960,
+   "segs": [
+    {
+     "utf8": "We have some very early agents that \nare extremely impressive and that I  "
+    }
+   ]
+  },
+  {
+   "tStartMs": 88480,
+   "dDurationMs": 5760,
+   "segs": [
+    {
+     "utf8": "use daily—Claude and Codex and so on—but I \nstill feel there's so much work to be done. "
+    }
+   ]
+  },
+  {
+   "tStartMs": 95440,
+   "dDurationMs": 2800,
+   "segs": [
+    {
+     "utf8": "My reaction is we'll be working \nwith these things for a decade. "
+    }
+   ]
+  },
+  {
+   "tStartMs": 98240,
+   "dDurationMs": 3200,
+   "segs": [
+    {
+     "utf8": "They're going to get better, \nand it's going to be wonderful. "
+    }
+   ]
+  },
+  {
+   "tStartMs": 102000,
+   "dDurationMs": 4880,
+   "segs": [
+    {
+     "utf8": "I was just reacting to the \ntimelines of the implication. "
+    }
+   ]
+  }
+ ]
+}
