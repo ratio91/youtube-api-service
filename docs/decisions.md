@@ -288,3 +288,18 @@ a compose side-car (`syncthing/syncthing:2`, matching v2.1.3 on the vault host),
 22000 published on `BIND_ADDR` only; the vault host's port 22000 is reachable from the
 home machine over the tailnet (probed). Channel and duration are now carried from the
 yt-dlp info JSON through the transcript cache into summaries and notes.
+
+## 2026-09-22 — Task 8 gate (home machine): note export + Syncthing side-car PASSED, pairing pending
+
+- Deployed `47864a4`. `/health.notes` writable; `?export=true` on the cached German
+  summary wrote the note; after refreshing the transcript (title, channel `Uni Vienna
+  live`, 1:18:52) the cached summary was enriched and the placeholder-named note was
+  moved to the real title. Frontmatter as decided, no transcript kind, video id only as
+  a property.
+- Side-car `syncthing/syncthing:2` up and healthy, GUI + 22000 on the Tailscale address.
+  Configured via its REST API: vault host added as device (Tailscale address + dynamic),
+  folder `video-inbox` (`/var/syncthing/video-inbox`, sendreceive, fs-watcher) shared with
+  it, default folder removed. Folder state idle, 1 local file. The vault host still has to
+  accept the device and the folder (operator, in its UI) and add the ignore lines for the
+  nested folder markers to the vault folder.
+- Open: GUI password on the side-car not set yet (Tailscale-only exposure).
