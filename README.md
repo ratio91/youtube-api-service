@@ -73,7 +73,7 @@ private network such as Tailscale.
 cp .env.example .env          # set BASIC_AUTH_*, leave OAuth empty for transcript-only mode
 # in .env: BIND_ADDR=<this host's Tailscale IP, 100.x.y.z>
 docker compose up -d --build
-curl http://127.0.0.1:3000/health   # from the host itself, or use the Tailscale IP
+curl "http://$(tailscale ip -4):3000/health"   # the port answers on BIND_ADDR only
 ```
 
 - The port is published **only on `BIND_ADDR`**, which defaults to `127.0.0.1`
@@ -306,7 +306,7 @@ npm test           # vitest: 87 unit/route tests, no network
 ### Field test checklist (run from a residential IP)
 
 ```bash
-H=http://127.0.0.1:3000; A=user:pass
+H=http://$(tailscale ip -4):3000; A=user:pass   # or http://127.0.0.1:3000 if BIND_ADDR is unset
 curl -s $H/health | jq .
 curl -su $A "$H/transcript/lXUZvyajciY" | jq '{lang,kind,n:(.transcript|length)}'   # English, manual
 curl -su $A "$H/transcript/fW4SwcMQYdA" | jq '{lang,kind}'                           # German, auto
