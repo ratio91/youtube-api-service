@@ -129,3 +129,25 @@ request plus one timedtext GET.
 **Not yet done:** Gate 3 (same checklist on the home machine over Tailscale from n8n) —
 needs the operator to create `.env` with `BIND_ADDR=<tailscale ip>` and run
 `docker compose up -d --build` there. Nothing is committed yet.
+
+## 2026-09-22 — Gate 3 (home machine over Tailscale): PASSED — service is live
+
+Deployed from the pushed commit via `git clone` + `docker compose up -d --build` on the
+home machine (x86_64, Fedora 42, Docker 29.5 / compose v5.1). `yt-dlp_musllinux`
+2026.08.19 checksum OK; container `healthy`; `.env` mode 600 with a generated
+32-char basic-auth password (user `n8n`), transcript-only mode, port published on the
+host's Tailscale address only. A pre-existing local process on loopback:3000 does not
+collide (different bind address).
+
+Field checklist from the home machine (residential IP), all as specified:
+EN manual 200 (2.6 s) · DE auto 200 (2.9 s) · `Me-kZi4xkEs` auto 200 (2.2 s) ·
+`format=text` 64 kB flowing text · `lang=de` on EN → 404 `LANG_UNAVAILABLE` ·
+`ScMzIvxBSi4` → 404 `NO_CAPTIONS` · unknown id → 500 `VIDEO_UNAVAILABLE` ·
+batch of 2 (text) 200 in 8.7 s · no auth 401 · `/auth/url` 503.
+
+Reachability: `/health` answers 200 from the n8n host over the tailnet (58 ms) and from
+**inside the n8n container** (verified with a fetch from within the container).
+
+**Cutover status:** the old VPS service keeps running until the n8n workflows are
+repointed to `http://<home-machine-tailscale-ip>:3000` with the new basic-auth
+credential. Retire the VPS service afterwards.
