@@ -486,18 +486,23 @@ Reading is nearly free; **sorting 100 videos into topic playlists (add + remove)
 
 ## n8n usage
 
-- **Transcript for one video:** HTTP Request → GET
-  `http://<tailscale-host>:3000/transcript/{{ $json.videoId }}?format=text`, Basic Auth.
-  On status `404` skip the video for good; on `503` leave it for the next run; `500`
-  needs a look.
-- **Batch:** POST `/batch-transcripts` with 10–20 ids; iterate over `transcripts`,
-  re-queue ids whose `errors[id].retryable` is `true`. Ids already in the cache come
-  back instantly, so re-running a workflow is cheap.
-- **Skip known videos:** GET `/transcripts` once per run and drop ids that are already
-  listed before calling the transcript endpoints.
-- **Summaries:** GET `/summary/{{ $json.videoId }}` returns ready Markdown (`markdown`)
-  and, when the export is enabled, has already written the Obsidian note (`note.fileName`).
-  Set the node timeout to 15 minutes. Or fetch `?format=text` and prompt your own model.
+An importable workflow lives in [`deploy/n8n/`](deploy/n8n/README.md): daily, it reads
+the inbox playlist with n8n's own YouTube credential, asks `GET /summaries` what is
+already done, and calls `GET /summary/:videoId` for the rest. The service caches the
+transcript and the summary and writes the Obsidian note, so n8n only orchestrates.
+
+Building your own nodes instead, the rules are:
+
+- **HTTP Request node**: Basic Auth credential with `BASIC_AUTH_USER`/`BASIC_AUTH_PASS`,
+  URL `http://<tailscale-host>:3000/...`. For `/summary` set the timeout to 900 000 ms
+  and enable *Never Error* + *Include Response Headers and Status* + *On Error →
+  Continue*, then branch on `statusCode`.
+- **Status codes**: `200` done (`markdown`, `note.fileName`), `404` no captions (skip
+  for good; the service remembers it for a week), `503` retry next run (blocked,
+  rate-limited, LLM down), `500` needs a look. `retryable` in the body says the same.
+- **Skip known videos** with `GET /summaries` (or `GET /transcripts`) once per run.
+- **Transcript only**: `GET /transcript/:videoId?format=text` gives one clean string for
+  your own prompt; `POST /batch-transcripts` takes 10–20 ids with a per-video error map.
 
 ## Development
 
