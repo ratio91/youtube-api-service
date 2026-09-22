@@ -22,11 +22,17 @@ const LANG_RE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 const langParam = z.string().regex(LANG_RE, 'lang must be a language code such as "en" or "de-DE"').optional();
 const formatParam = z.enum(['json', 'text']).default('json');
 
-const transcriptQuerySchema = z.object({ lang: langParam, format: formatParam });
+const refreshParam = z
+  .enum(['true', 'false', '1', '0'])
+  .optional()
+  .transform((v) => v === 'true' || v === '1');
+
+const transcriptQuerySchema = z.object({ lang: langParam, format: formatParam, refresh: refreshParam });
 const batchBodySchema = z.object({
   videoIds: z.array(z.string().regex(VIDEO_ID_RE, 'invalid YouTube video id')),
   lang: langParam,
   format: formatParam,
+  refresh: z.boolean().optional().default(false),
 });
 
 function firstIssue(err: z.ZodError): string {
@@ -194,16 +200,27 @@ export function createApp(deps: AppDeps) {
       const msg = issue?.path[0] === 'videoIds' && issue.code === 'invalid_type' ? 'videoIds must be an array' : firstIssue(body.error);
       return res.status(400).json({ error: msg });
     }
-    const { videoIds, lang, format } = body.data;
+    const { videoIds, lang, format, refresh } = body.data;
     if (videoIds.length > batchMax) {
       return res.status(400).json({ error: `too many videoIds: ${videoIds.length} > ${batchMax} (TRANSCRIPT_BATCH_MAX)` });
     }
 
     try {
-      const result = await deps.transcripts.getBatch(videoIds, { lang, format: format as TranscriptFormat });
+      const result = await deps.transcripts.getBatch(videoIds, { lang, format: format as TranscriptFormat, refresh });
       res.json({ ...result, timestamp: new Date().toISOString() });
     } catch (error) {
       log('error', 'route.batch_failed', { error: errorMessage(error) });
+      res.status(500).json({ error: errorMessage(error) });
+    }
+  });
+
+  // Cached transcripts, newest first — lets n8n see what is already fetched without fetching.
+  app.get('/transcripts', basicAuth, async (_req: Request, res: Response) => {
+    try {
+      const transcripts = await deps.transcripts.listCached();
+      res.json({ count: transcripts.length, transcripts, timestamp: new Date().toISOString() });
+    } catch (error) {
+      log('error', 'route.transcripts_list_failed', { error: errorMessage(error) });
       res.status(500).json({ error: errorMessage(error) });
     }
   });

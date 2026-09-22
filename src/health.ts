@@ -1,4 +1,5 @@
 import { OAuthCheck, YouTubeService } from './youtube';
+import { CacheStats } from './transcripts/cache';
 
 export interface TranscriptsHealth {
   backend: 'yt-dlp';
@@ -20,6 +21,8 @@ export interface HealthReport {
   oauth: 'disabled' | OAuthCheck['status'];
   oauthDetail?: OAuthCheck;
   transcripts: TranscriptsHealth;
+  /** persistent transcript cache; null when no cache is configured */
+  cache: CacheStats | null;
   /** legacy field (pre-2026-09): true only when oauth === "ok" */
   authorized: boolean;
   timestamp: string;
@@ -28,6 +31,8 @@ export interface HealthReport {
 export interface HealthDeps {
   youtube: YouTubeService | null;
   probeTranscripts: () => Promise<TranscriptsHealth>;
+  /** already memoised by TranscriptCache.stats() */
+  cacheStats?: () => Promise<CacheStats>;
   oauthCacheMs: number;
   /** re-probe interval for a failing transcript backend */
   transcriptsRecheckMs?: number;
@@ -75,13 +80,14 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
   }
 
   return async () => {
-    const [oauth, transcripts] = await Promise.all([oauthStatus(), transcriptsStatus()]);
+    const [oauth, transcripts, cache] = await Promise.all([oauthStatus(), transcriptsStatus(), deps.cacheStats ? deps.cacheStats() : Promise.resolve(null)]);
     return {
       status: transcripts.ok && transcripts.jsRuntime.present ? 'ok' : 'degraded',
       mode: deps.youtube ? 'full' : 'transcript-only',
       oauth: oauth ? oauth.status : 'disabled',
       ...(oauth ? { oauthDetail: oauth } : {}),
       transcripts,
+      cache,
       authorized: oauth?.status === 'ok',
       timestamp: new Date().toISOString(),
     };

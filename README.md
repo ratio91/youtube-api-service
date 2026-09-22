@@ -13,6 +13,8 @@ n8n over a private network and to feed a local LLM with clean transcript text.
   cleaned plain-text mode (`?format=text`) for LLM input
 - Precise error semantics so automations can react: `404` no captions, `503`
   blocked/rate-limited (retry later), `500` everything else
+- **Persistent transcript cache**: every transcript is fetched from YouTube once and
+  kept on disk, so re-summarising with another model or retrying never hits YouTube again
 - Optional OAuth2 playlist access (list playlists, fetch all videos of a playlist)
 - **Transcript-only mode** when no OAuth credentials are configured
 - Honest `/health`: reports whether the stored refresh token still works and which
@@ -50,6 +52,8 @@ Copy `.env.example` to `.env` and fill it in. Empty values count as unset.
 | `YTDLP_PATH` | no | `yt-dlp` | Path to the yt-dlp binary |
 | `YTDLP_JS_RUNTIME` | no | `node` | Value for `yt-dlp --js-runtimes`; `none` omits the flag |
 | `HEALTH_OAUTH_CACHE_MS` | no | `300000` | How long `/health` caches the OAuth refresh check |
+| `TRANSCRIPT_CACHE_DIR` | no | `/data/transcripts` | Persistent transcript cache directory (see [Transcript cache](#transcript-cache)) |
+| `NO_CAPTIONS_TTL_DAYS` | no | `7` | How long a "no captions" answer is trusted before YouTube is asked again |
 | `PORT` | no | `3000` | Listen port (fixed to 3000 inside the compose setup) |
 | `BIND_ADDR`, `HOST_PORT`, `YTDLP_VERSION` | compose only | `127.0.0.1`, `3000`, pinned | Host-side settings, see [Deployment](#deployment-single-host-docker-compose) |
 
@@ -79,7 +83,10 @@ curl "http://$(tailscale ip -4):3000/health"   # the port answers on BIND_ADDR o
 - The port is published **only on `BIND_ADDR`**, which defaults to `127.0.0.1`
   (reachable from the host only). Set it to the host's Tailscale IP to make the
   service reachable from the tailnet and nowhere else. No router port forwarding.
-- `./data` is bind-mounted to `/data` for OAuth tokens (unused in transcript-only mode).
+- `./data` is bind-mounted to `/data`: the transcript cache lives in
+  `./data/transcripts`, OAuth tokens (full mode only) in `./data/tokens.json`. Create
+  `./data` as your normal user before the first start; the container runs as uid 1000
+  and `/health` reports `cache.writable: false` if it cannot write there.
 - A named volume keeps yt-dlp's cache between restarts.
 - The image bakes in the official standalone yt-dlp binary for the build platform
   (`yt-dlp_musllinux` on Alpine, checksum-verified) and uses the image's Node 24 as
@@ -142,6 +149,7 @@ so a broken transcript backend shows up in monitoring without flapping the conta
     "jsRuntime": { "requested": "node", "detected": "node-24.21.0", "present": true },
     "ejs": "0.8.0"
   },
+  "cache": { "dir": "/data/transcripts", "files": 42, "sizeBytes": 9812345, "writable": true },
   "authorized": false,
   "timestamp": "2026-09-22T12:00:00.000Z"
 }
@@ -156,11 +164,12 @@ so a broken transcript backend shows up in monitoring without flapping the conta
 | `transcripts.version` | string or `null` | Output of `yt-dlp --version`; `null` if the binary failed to run (`transcripts.error` says why) |
 | `transcripts.jsRuntime` | object | `requested` = value of `YTDLP_JS_RUNTIME`; `detected` = what **yt-dlp itself** reports in its `-v` header (`node-24.21.0`, or `none`); `present` = detected and not `none`. Probed offline by running `yt-dlp -v --js-runtimes …` without a URL, so it reflects the flag real calls use, not just that a binary exists. The runtime only affects media-URL deciphering, never caption extraction, but without it yt-dlp drops the `web` client. |
 | `transcripts.ejs` | string or `null` | Bundled `yt-dlp-ejs` (JS challenge solver) version |
+| `cache` | object | `{ dir, files, sizeBytes, writable, error? }` for the transcript cache, recomputed at most once a minute. `writable: false` means fetches still work but nothing is stored (check directory ownership). |
 | `authorized` | boolean | Legacy field: `true` only when `oauth` is `ok` |
 
 ### Transcripts
 
-#### `GET /transcript/:videoId[?lang=xx][&format=json|text]`
+#### `GET /transcript/:videoId[?lang=xx][&format=json|text][&refresh=true]`
 
 Track selection order without `lang`: **manual captions in the video's original
 language → auto-generated captions in that language → any manual track (en, de
@@ -173,6 +182,8 @@ vice versa); otherwise `404` with the languages that do exist.
   "videoId": "lXUZvyajciY",
   "lang": "en",
   "kind": "manual",
+  "cached": false,
+  "fetchedAt": "2026-09-22T12:00:00.000Z",
   "transcript": [
     { "text": "Today I'm speaking with Andrej Karpathy.", "duration": 4400, "offset": 48560, "lang": "en" }
   ],
@@ -180,7 +191,9 @@ vice versa); otherwise `404` with the languages that do exist.
 }
 ```
 
-`offset` and `duration` are **milliseconds**. `kind` is `manual` or `auto`.
+`offset` and `duration` are **milliseconds**. `kind` is `manual` or `auto`. `cached`
+tells whether the answer came from the on-disk cache; `fetchedAt` is when YouTube was
+actually asked. `?refresh=true` bypasses the cache and overwrites the stored file.
 
 `?format=text` returns one cleaned string instead of the array (auto-caption rolling
 repeats removed, sound tags such as `[Music]` dropped, whitespace normalised):
@@ -193,7 +206,7 @@ repeats removed, sound tags such as `[Music]` dropped, whitespace normalised):
 
 | HTTP | Body | When |
 |---|---|---|
-| `404` | `{ available: false, code: "NO_CAPTIONS", reason, retryable: false }` | Video has no caption tracks at all |
+| `404` | `{ available: false, code: "NO_CAPTIONS", reason, retryable: false, cached }` | Video has no caption tracks at all (remembered for `NO_CAPTIONS_TTL_DAYS`) |
 | `404` | `{ available: false, code: "LANG_UNAVAILABLE", availableLanguages: { manual: [...], auto: [...] }, ... }` | Requested `lang` has no track |
 | `503` | `{ retryable: true, code: "BLOCKED" \| "RATE_LIMITED" \| "TIMEOUT", reason }` | Bot check, IP block, HTTP 429, PO-token discard, or yt-dlp deadline hit — try again later |
 | `500` | `{ error, reason, code: "VIDEO_UNAVAILABLE" \| "BACKEND_FAILURE", retryable: false }` | Private/removed video, yt-dlp missing or broken, unexpected error |
@@ -204,11 +217,12 @@ All YouTube traffic is serialised inside the service, so parallel calls never bu
 #### `POST /batch-transcripts`
 
 ```json
-{ "videoIds": ["lXUZvyajciY", "fW4SwcMQYdA"], "lang": "de", "format": "text" }
+{ "videoIds": ["lXUZvyajciY", "fW4SwcMQYdA"], "lang": "de", "format": "text", "refresh": false }
 ```
 
-`lang` and `format` are optional and apply to every video. Videos are processed
-**sequentially** with `TRANSCRIPT_BATCH_DELAY_MS` between them; at most
+`lang`, `format` and `refresh` are optional and apply to every video. Cached videos are
+answered immediately; only the videos that actually go to YouTube are processed
+**sequentially** with `TRANSCRIPT_BATCH_DELAY_MS` between them. At most
 `TRANSCRIPT_BATCH_MAX` ids per request (`400` otherwise). Failed videos stay `null`
 in `transcripts` and get an entry in `errors` with the same shape as the single-video
 error bodies. **After the first `BLOCKED`/`RATE_LIMITED` result the remaining videos
@@ -219,13 +233,51 @@ answer does not turn into twenty more probes.
 {
   "transcripts": { "lXUZvyajciY": [ ... ], "fW4SwcMQYdA": null },
   "errors": { "fW4SwcMQYdA": { "code": "NO_CAPTIONS", "reason": "…", "retryable": false, "status": 404, "available": false } },
-  "tracks": { "lXUZvyajciY": { "lang": "en", "kind": "manual" } },
+  "tracks": { "lXUZvyajciY": { "lang": "en", "kind": "manual", "cached": true } },
   "timestamp": "2026-09-22T12:00:00.000Z"
 }
 ```
 
-Keep batches small enough for your HTTP client's timeout: each video costs roughly
-the yt-dlp run (a few seconds) plus the configured delay.
+Keep batches small enough for your HTTP client's timeout: each **uncached** video
+costs roughly the yt-dlp run (a few seconds) plus the configured delay; cached ones
+are free.
+
+#### `GET /transcripts`
+
+Lists what the cache holds, newest first, without triggering any fetch, so an
+automation can skip videos it already has:
+
+```json
+{
+  "count": 2,
+  "transcripts": [
+    { "videoId": "lXUZvyajciY", "lang": "en", "kind": "manual", "fetchedAt": "2026-09-22T12:00:00.000Z" },
+    { "videoId": "ScMzIvxBSi4", "lang": null, "kind": "none", "fetchedAt": "2026-09-22T11:00:00.000Z", "expiresAt": "2026-09-29T11:00:00.000Z" }
+  ],
+  "timestamp": "2026-09-22T12:00:00.000Z"
+}
+```
+
+### Transcript cache
+
+Every transcript is fetched from YouTube **once** and stored under
+`TRANSCRIPT_CACHE_DIR` (default `/data/transcripts`, inside the `./data` volume):
+
+- `<videoId>.<lang>.json` — one file per video and track:
+  `{ version, videoId, lang, kind, default?, fetchedAt, backend, backendVersion, segments: [{ text, offset, duration }] }`
+  with `offset`/`duration` in ms. Both output formats are derived from the stored
+  segments, so `format=text` from cache is byte-identical to a live answer.
+- `<videoId>.none.json` — "no captions", trusted for `NO_CAPTIONS_TTL_DAYS` (new videos
+  often get auto-captions later), then re-checked. Blocked, rate-limited, timeout,
+  unavailable and language-not-found results are **never** cached.
+- Lookup: with `?lang=` the exact track, else a primary-subtag match (`de` finds `de-DE`);
+  without `?lang=` any cached track counts, preferring the one a previous default request
+  chose (`default: true`), then manual over auto.
+- Files are written atomically (temp file + rename); a corrupt file is logged, treated
+  as a miss and overwritten by the next fetch. Cache problems never fail a request.
+- `?refresh=true` (or `"refresh": true` in a batch body) refetches and overwrites.
+- The files are plain JSON on the host, safe to read, back up or delete. Deleting a
+  file simply causes one refetch.
 
 ### OAuth endpoints (full mode; `503 { "error": "oauth disabled" }` otherwise)
 
@@ -290,7 +342,10 @@ Reading is nearly free; **sorting 100 videos into topic playlists (add + remove)
   On status `404` skip the video for good; on `503` leave it for the next run; `500`
   needs a look.
 - **Batch:** POST `/batch-transcripts` with 10–20 ids; iterate over `transcripts`,
-  re-queue ids whose `errors[id].retryable` is `true`.
+  re-queue ids whose `errors[id].retryable` is `true`. Ids already in the cache come
+  back instantly, so re-running a workflow is cheap.
+- **Skip known videos:** GET `/transcripts` once per run and drop ids that are already
+  listed before calling the transcript endpoints.
 - **Summaries:** feed `text` to your local LLM (OpenAI-compatible endpoint) in the
   next node.
 
@@ -300,7 +355,7 @@ Reading is nearly free; **sorting 100 videos into topic playlists (add + remove)
 npm ci
 npm run dev        # ts-node, http://localhost:3000 (needs yt-dlp on PATH for transcripts)
 npm run build
-npm test           # vitest: 97 unit/route tests, no network
+npm test           # vitest: 122 unit/route tests, no network
 ```
 
 `package-lock.json` is committed — use `npm ci`.
@@ -316,6 +371,9 @@ curl -su $A "$H/transcript/Me-kZi4xkEs" | jq '{lang,kind}'                      
 curl -su $A "$H/transcript/fW4SwcMQYdA?format=text" | jq -r .text | head -c 600     # readable, no repeats
 curl -su $A "$H/transcript/lXUZvyajciY?lang=de" | jq .                              # 404 LANG_UNAVAILABLE
 curl -su $A "$H/transcript/ScMzIvxBSi4" | jq .                                      # 404 NO_CAPTIONS (public video, no tracks)
+curl -su $A "$H/transcript/lXUZvyajciY" | jq .cached                                # second call: true, no yt-dlp run in the logs
+curl -su $A "$H/transcript/lXUZvyajciY?refresh=true" | jq '{cached,fetchedAt}'     # refetched, newer fetchedAt
+curl -su $A "$H/transcripts" | jq .                                                 # what the cache holds
 curl -su $A -o /dev/null -w '%{http_code}\n' "$H/transcript/aaaaaaaaaaa"            # 500 VIDEO_UNAVAILABLE
 ```
 
@@ -335,7 +393,11 @@ curl -su $A -o /dev/null -w '%{http_code}\n' "$H/transcript/aaaaaaaaaaa"        
   YouTube changed something; [update yt-dlp](#updating-yt-dlp).
 - **`"oauth": "expired"`** — see [Token issues](#token-issues).
 - **Logs** are one JSON line per event (`docker compose logs -f youtube-api`);
-  `transcript.ok` lines carry per-phase timings (`ms.ytdlp`, `ms.fetch`, `ms.parse`).
+  `transcript.ok` lines carry per-phase timings (`ms.ytdlp`, `ms.fetch`, `ms.parse`),
+  `transcript.cache_hit` lines mark answers served from disk.
+- **`/health` shows `cache.writable: false`** — the container (uid 1000) cannot write
+  to the cache directory. On the host: `sudo chown -R 1000 data` (compose setups) or fix
+  `TRANSCRIPT_CACHE_DIR`. Fetching keeps working meanwhile, nothing is stored.
 
 ## License
 

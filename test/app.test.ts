@@ -60,13 +60,14 @@ function makeFakeTranscripts(overrides: TxOverrides = {}): TranscriptService {
   const fake = {
     getTranscript: vi.fn(async (videoId: string, opts: { format?: string } = {}) =>
       opts.format === 'text'
-        ? { videoId, lang: 'en', kind: 'manual', text: 'hello world' }
-        : { videoId, lang: 'en', kind: 'manual', transcript: SAMPLE_ENTRIES }
+        ? { videoId, lang: 'en', kind: 'manual', cached: false, fetchedAt: 'f', text: 'hello world' }
+        : { videoId, lang: 'en', kind: 'manual', cached: false, fetchedAt: 'f', transcript: SAMPLE_ENTRIES }
     ),
+    listCached: vi.fn(async () => [{ videoId: 'lXUZvyajciY', lang: 'en', kind: 'manual', fetchedAt: '2026-09-22T00:00:00.000Z' }]),
     getBatch: vi.fn(async (videoIds: string[]) => ({
       transcripts: Object.fromEntries(videoIds.map((id) => [id, SAMPLE_ENTRIES])),
       errors: {},
-      tracks: Object.fromEntries(videoIds.map((id) => [id, { lang: 'en', kind: 'manual' }])),
+      tracks: Object.fromEntries(videoIds.map((id) => [id, { lang: 'en', kind: 'manual', cached: false }])),
     })),
     ...overrides,
   };
@@ -78,6 +79,7 @@ const HEALTH_OK: HealthReport = {
   mode: 'full',
   oauth: 'ok',
   transcripts: { backend: 'yt-dlp', version: '2026.08.19', ok: true, jsRuntime: { requested: 'node', detected: 'node-24.21.0', present: true }, ejs: '0.8.0' },
+  cache: { dir: '/data/transcripts', files: 3, sizeBytes: 12345, writable: true },
   authorized: true,
   timestamp: '2026-09-22T00:00:00.000Z',
 };
@@ -229,7 +231,8 @@ describe('GET /transcript/:videoId', () => {
     const { app, transcripts } = makeApp();
     const res = await request(app).get(`/transcript/${VID}`).set('Authorization', GOOD_AUTH);
     expect(res.status).toBe(200);
-    expect(transcripts.getTranscript).toHaveBeenCalledWith(VID, { lang: undefined, format: 'json' });
+    expect(transcripts.getTranscript).toHaveBeenCalledWith(VID, { lang: undefined, format: 'json', refresh: false });
+    expect(res.body.cached).toBe(false);
     expect(res.body).toMatchObject({ videoId: VID, lang: 'en', kind: 'manual', transcript: SAMPLE_ENTRIES });
     expect(typeof res.body.timestamp).toBe('string');
   });
@@ -238,9 +241,25 @@ describe('GET /transcript/:videoId', () => {
     const { app, transcripts } = makeApp();
     const res = await request(app).get(`/transcript/${VID}`).query({ lang: 'de', format: 'text' }).set('Authorization', GOOD_AUTH);
     expect(res.status).toBe(200);
-    expect(transcripts.getTranscript).toHaveBeenCalledWith(VID, { lang: 'de', format: 'text' });
+    expect(transcripts.getTranscript).toHaveBeenCalledWith(VID, { lang: 'de', format: 'text', refresh: false });
     expect(res.body.text).toBe('hello world');
     expect(res.body.transcript).toBeUndefined();
+  });
+
+  it('passes ?refresh=true and rejects other values', async () => {
+    const { app, transcripts } = makeApp();
+    await request(app).get(`/transcript/${VID}`).query({ refresh: 'true' }).set('Authorization', GOOD_AUTH);
+    expect(transcripts.getTranscript).toHaveBeenLastCalledWith(VID, { lang: undefined, format: 'json', refresh: true });
+    await request(app).get(`/transcript/${VID}`).query({ refresh: '1' }).set('Authorization', GOOD_AUTH);
+    expect(transcripts.getTranscript).toHaveBeenLastCalledWith(VID, expect.objectContaining({ refresh: true }));
+    expect((await request(app).get(`/transcript/${VID}`).query({ refresh: 'yes' }).set('Authorization', GOOD_AUTH)).status).toBe(400);
+  });
+
+  it('a cached 404 carries cached:true', async () => {
+    const { app } = makeApp({ transcripts: { getTranscript: vi.fn(async () => { throw new TranscriptError('NO_CAPTIONS', 'no tracks', { cached: true }); }) } });
+    const res = await request(app).get(`/transcript/${VID}`).set('Authorization', GOOD_AUTH);
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ available: false, cached: true });
   });
 
   it('rejects an invalid video id with 400 before calling the backend', async () => {
@@ -315,9 +334,27 @@ describe('POST /batch-transcripts', () => {
     const { app, transcripts } = makeApp();
     const res = await request(app).post('/batch-transcripts').set('Authorization', GOOD_AUTH).send({ videoIds: [VID], lang: 'en', format: 'text' });
     expect(res.status).toBe(200);
-    expect(transcripts.getBatch).toHaveBeenCalledWith([VID], { lang: 'en', format: 'text' });
+    expect(transcripts.getBatch).toHaveBeenCalledWith([VID], { lang: 'en', format: 'text', refresh: false });
     expect(res.body.transcripts[VID]).toEqual(SAMPLE_ENTRIES);
     expect(res.body.errors).toEqual({});
-    expect(res.body.tracks[VID]).toEqual({ lang: 'en', kind: 'manual' });
+    expect(res.body.tracks[VID]).toEqual({ lang: 'en', kind: 'manual', cached: false });
+  });
+
+  it('forwards refresh:true from the body', async () => {
+    const { app, transcripts } = makeApp();
+    await request(app).post('/batch-transcripts').set('Authorization', GOOD_AUTH).send({ videoIds: [VID], refresh: true });
+    expect(transcripts.getBatch).toHaveBeenCalledWith([VID], { lang: undefined, format: 'json', refresh: true });
+  });
+});
+
+describe('GET /transcripts (cache listing)', () => {
+  it('requires basic auth and returns the cached entries with a count', async () => {
+    const { app, transcripts } = makeApp();
+    expect((await request(app).get('/transcripts')).status).toBe(401);
+    const res = await request(app).get('/transcripts').set('Authorization', GOOD_AUTH);
+    expect(res.status).toBe(200);
+    expect(transcripts.listCached).toHaveBeenCalledOnce();
+    expect(res.body.count).toBe(1);
+    expect(res.body.transcripts[0]).toMatchObject({ videoId: 'lXUZvyajciY', lang: 'en', kind: 'manual' });
   });
 });

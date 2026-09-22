@@ -39,6 +39,11 @@ const envSchema = z
     TRANSCRIPT_MAX_ATTEMPTS: positiveInt(2),
     TRANSCRIPT_RETRY_DELAY_MS: nonNegativeInt(5_000),
     HEALTH_OAUTH_CACHE_MS: nonNegativeInt(300_000),
+
+    // Persistent transcript cache (one file per video + track)
+    TRANSCRIPT_CACHE_DIR: z.string().default('/data/transcripts'),
+    // How long a "no captions" result is trusted before YouTube is asked again
+    NO_CAPTIONS_TTL_DAYS: z.coerce.number().min(0).default(7),
   })
   .superRefine((env, ctx) => {
     const trio = ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'OAUTH_REDIRECT_URI'] as const;

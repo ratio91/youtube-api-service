@@ -25,7 +25,12 @@ services:
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000"
     volumes:
-      # OAuth tokens (only used when the OAuth env vars are set)
+      # /data holds the transcript cache (/data/transcripts, one JSON file per
+      # video+track) and, in full mode, tokens.json. Bind-mounted so the files are
+      # readable from the host and survive rebuilds. The container runs as uid 1000:
+      # create ./data as your normal user (or `chown 1000 data`) before the first
+      # `up`, otherwise compose creates it root-owned and /health shows
+      # cache.writable=false.
       - ./data:/data
       # yt-dlp cache (player/challenge data); speeds up repeated calls
       - ytdlp-cache:/home/node/.cache

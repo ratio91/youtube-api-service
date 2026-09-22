@@ -19,6 +19,14 @@ describe('createHealthProvider', () => {
     expect(r.oauthDetail).toBeUndefined();
   });
 
+  it('includes cache stats when provided and null otherwise', async () => {
+    const stats = { dir: '/data/transcripts', files: 2, sizeBytes: 100, writable: true };
+    const withCache = createHealthProvider({ youtube: null, probeTranscripts: async () => healthy, cacheStats: async () => stats, oauthCacheMs: 1000 });
+    expect((await withCache()).cache).toEqual(stats);
+    const without = createHealthProvider({ youtube: null, probeTranscripts: async () => healthy, oauthCacheMs: 1000 });
+    expect((await without()).cache).toBeNull();
+  });
+
   it('is degraded when yt-dlp runs but does not detect the requested JS runtime', async () => {
     const health = createHealthProvider({ youtube: null, probeTranscripts: async () => noRuntime, oauthCacheMs: 1000 });
     const r = await health();

@@ -32,8 +32,10 @@ export class TranscriptError extends Error {
   readonly retryable: boolean;
   readonly reason: string;
   readonly availableLanguages?: AvailableLanguages;
+  /** true when this result was served from the transcript cache (cached NO_CAPTIONS) */
+  readonly cached: boolean;
 
-  constructor(code: TranscriptErrorCode, reason: string, extra: { availableLanguages?: AvailableLanguages; cause?: unknown } = {}) {
+  constructor(code: TranscriptErrorCode, reason: string, extra: { availableLanguages?: AvailableLanguages; cause?: unknown; cached?: boolean } = {}) {
     super(`${code}: ${reason}`);
     this.name = 'TranscriptError';
     this.code = code;
@@ -41,6 +43,7 @@ export class TranscriptError extends Error {
     this.httpStatus = HTTP_STATUS[code];
     this.retryable = RETRYABLE.has(code);
     this.availableLanguages = extra.availableLanguages;
+    this.cached = extra.cached ?? false;
     if (extra.cause !== undefined) {
       (this as { cause?: unknown }).cause = extra.cause;
     }
@@ -52,6 +55,7 @@ export class TranscriptError extends Error {
     if (this.httpStatus === 404) {
       base.available = false;
       if (this.availableLanguages) base.availableLanguages = this.availableLanguages;
+      base.cached = this.cached;
     }
     if (this.httpStatus === 500) {
       // `error` kept for consumers of the pre-2026-09 API that read res.body.error

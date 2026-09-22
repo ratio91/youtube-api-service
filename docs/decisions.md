@@ -170,3 +170,26 @@ and `yt_dlp_ejs-…`. `/health` reports `jsRuntime: { requested, detected, prese
 `ejs`; `status` is `degraded` when the requested runtime is not detected. A degraded probe
 is re-run every 60 s, a healthy one is cached. Header wording verified against 2026.08.19
 (`node-24.21.0`, `none`, `none (disabled)`).
+
+## 2026-09-22 — Task 6: persistent transcript cache (spec approved, decisions)
+
+Spec (operator): fetch each transcript once, keep it on disk, derive both output formats
+from the stored segments, cache "no captions" with a TTL, never cache retryable errors,
+`?refresh=true`, `/health.cache`, `GET /transcripts`.
+
+**Decisions (operator approved):**
+1. Cache lives in the existing `./data` bind mount (`/data/transcripts`), not a named
+   volume: host-readable, already owned by uid 1000 on the home machine; ownership
+   problems surface as `cache.writable=false` in `/health` instead of failing fetches.
+2. `GET /transcripts` includes the no-captions markers as `kind: "none"`, `lang: null`,
+   with `expiresAt`.
+3. Batch responses report cache hits in `tracks[id].cached`; cached 404s appear in the
+   error map with `cached: true`.
+
+**Implementation notes:** `<videoId>.<lang>.json` / `<videoId>.none.json`; zod-validated on
+read; atomic temp-file + rename writes; a `default: true` flag marks the track chosen by a
+request without `?lang=` so later default requests hit the same track; cache reads bypass
+the yt-dlp queue, fetches re-check the cache inside the queue; batch delay only between
+real fetches; listing/stats memoised 60 s. Only `NO_CAPTIONS` is cached (TTL
+`NO_CAPTIONS_TTL_DAYS`, default 7); `LANG_UNAVAILABLE` is not, since a manual track in
+that language may appear later.
