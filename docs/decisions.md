@@ -208,3 +208,62 @@ yt-dlp run, no delay, `tracks[id].cached` correct; `/health.cache` = 3 files /
 **Home machine (compose, `./data/transcripts`):** same sequence after `git pull` +
 rebuild; files owned by the host user (uid 1000 = container `node`), `cache.writable:
 true`, container healthy. Commit `052fbb8` deployed.
+
+## 2026-09-22 — Task 7: summaries with the local LLM (findings, decisions, design)
+
+**Field findings on the home machine (invalidating the task's premise):**
+- No Ollama installed. The LLM is **llama.cpp `llama-server`** (build b9598, 2026-06-11,
+  Vulkan backend) as a system unit, model **Qwen3.6-35B-A3B UD-Q4_K_XL** (20.8 GB, MoE,
+  ~3B active), all layers on the Radeon 780M (Vulkan, 24 GiB GTT), port 8000 on all
+  interfaces, no API key, one slot, flash attention, q8_0 KV cache, `--jinja`.
+- Architecture (HF `Qwen/Qwen3.6-35B-A3B` config.json): 40 layers, 10 full attention
+  (2 KV heads × 256) + 30 linear attention, 256 experts / 8 active, 262k native context.
+  KV cache ≈ 10 KB/token at q8_0 → raising the server context is cheap.
+- Probe (thinking disabled via `chat_template_kwargs.enable_thinking=false`): warm-up
+  21 tok/s generation; full German talk (15,056 prompt tokens) 90 s wall: prefill 249
+  tok/s (60 s), generation 20 tok/s; good structured German summary; 600 output tokens
+  was too little (`finish_reason: length`).
+- Context overflow answers HTTP 400 `{"error":{"type":"exceed_context_size_error",
+  "message":"request (N tokens) exceeds the available context size (M tokens), try
+  increasing it","n_prompt_tokens":N,"n_ctx":M}}`.
+- `Qwen3.8-27B` (operator's original pick) is dense, 64 layers, multimodal, 16.5 GB at
+  UD-Q4_K_M: on this hardware several times slower per token than the 3B-active MoE.
+
+**Decisions (operator):**
+1. Keep Qwen3.6-35B-A3B; add a benchmark tool (`dist/tools/llm-bench.js`) that runs
+   the service's prompts on cached transcripts against whatever model llama-server
+   loads. Gemma 3 12B noted as the candidate to try later.
+2. Summaries live in this service (`GET /summary/:videoId`, `GET /summaries`), cached
+   under `/data/summaries/<videoId>.<summaryLang>.json` with model, prompt version,
+   strategy, token counts. Summary language defaults to the transcript language.
+3. Operator raised `--ctx-size` to 65536 (unit edit + restart; verified via `/props`).
+   No API key on llama-server (home network).
+4. Synchronous endpoint; n8n timeout to be set to ~10 min.
+
+**Design notes:** LLM client = OpenAI chat completions with llama.cpp extensions
+(`top_k`, `chat_template_kwargs`); sampling per Qwen non-thinking recommendation
+(temperature 0.7, top-p 0.8, top-k 20, presence 1.5); output budget 1200 with one retry
+at 1.6× when cut off. Context window taken from `/props` unless `LLM_CONTEXT_TOKENS` is
+set. Chunking (map → reduce, recursive when notes do not fit) when the estimate
+(3.5 chars/token, conservative vs. 4.3 measured) exceeds the budget, and as a fallback
+when the server reports an overflow (then recalibrated from the reported token count and
+forced to ≥ 2 parts). Transcript lines carry `[h:mm:ss]` stamps once per minute so the
+notes can cite positions. Video title now stored in the transcript cache on new fetches.
+LLM outages surface as 503 retryable and never degrade `/health.status`.
+
+## 2026-09-22 — Task 7 gates (local container → home-machine LLM over Tailscale): PASSED
+
+| Case | Result |
+|---|---|
+| `/health.llm` | `ok`, model `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf`, `contextTokens 65536` read from `/props`, build b9598 |
+| DE talk (16k tokens) | single shot, 117 s, 1,036 output tokens, not truncated; German, all four sections, correct timestamps |
+| DE again | `cached: true`, no LLM call |
+| EN talk (33k tokens) | single shot (64k ctx), 360 s incl. one retry after `finish_reason: length` at 1,200 tokens → default output budget raised to 2,000 |
+| EN talk, `summaryLang=de` | separate file, German summary of the English transcript, 364 s |
+| DE with `LLM_CONTEXT_TOKENS=12000` | chunked: 3 parts, 6 LLM calls, 437 s, coherent result — fallback works but is several times slower than one pass |
+| LLM unreachable | `503 LLM_UNAVAILABLE` with the connection error, `retryable: true`; `/health.status` stays `ok` |
+| no-captions video | `404 NO_CAPTIONS` passthrough, `cached: true` |
+
+Observation: headings are emitted in English regardless of summary language (prompt says
+"these headings") — deliberate for uniform notes; to be confirmed with the operator.
+Files: `/data/summaries/<videoId>.<summaryLang>.json` (4–7 kB each).

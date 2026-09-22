@@ -27,6 +27,23 @@ describe('createHealthProvider', () => {
     expect((await without()).cache).toBeNull();
   });
 
+  it('reports the LLM probe (cached for llmCacheMs) without affecting status', async () => {
+    let t = 0;
+    const probe = vi.fn(async () => ({ ok: false, baseUrl: 'http://x/v1', model: null, contextTokens: null, build: null, error: 'ECONNREFUSED' }));
+    const health = createHealthProvider({ youtube: null, probeTranscripts: async () => healthy, probeLlm: probe, llmCacheMs: 100, summaryStats: async () => ({ dir: '/s', files: 0, sizeBytes: 0, writable: true }), oauthCacheMs: 1000, now: () => t });
+    const r = await health();
+    expect(r.status).toBe('ok'); // LLM down does not degrade the transcript service
+    expect(r.llm).toMatchObject({ ok: false, error: 'ECONNREFUSED' });
+    expect(r.summaryCache).toMatchObject({ dir: '/s' });
+    await health();
+    expect(probe).toHaveBeenCalledTimes(1);
+    t = 150;
+    await health();
+    expect(probe).toHaveBeenCalledTimes(2);
+    const without = createHealthProvider({ youtube: null, probeTranscripts: async () => healthy, oauthCacheMs: 1000 });
+    expect((await without()).llm).toBeNull();
+  });
+
   it('is degraded when yt-dlp runs but does not detect the requested JS runtime', async () => {
     const health = createHealthProvider({ youtube: null, probeTranscripts: async () => noRuntime, oauthCacheMs: 1000 });
     const r = await health();

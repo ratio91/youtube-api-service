@@ -16,6 +16,7 @@ export interface TranscriptOptions {
 
 export interface TranscriptResult {
   videoId: string;
+  title?: string;
   lang: string;
   kind: TrackKind;
   cached: boolean;
@@ -59,6 +60,14 @@ interface FetchedTrack {
   lang: string;
   kind: TrackKind;
   entries: TranscriptEntry[];
+  title?: string;
+}
+
+/** Transcript entries plus track metadata, for in-process consumers (summaries). */
+export interface TranscriptEntries extends FetchedTrack {
+  videoId: string;
+  cached: boolean;
+  fetchedAt: string;
 }
 
 const RETRY_CODES = new Set(['RATE_LIMITED', 'TIMEOUT']);
@@ -101,6 +110,12 @@ export class TranscriptService {
   }
 
   async getTranscript(videoId: string, opts: TranscriptOptions = {}): Promise<TranscriptResult> {
+    const t = await this.getEntries(videoId, opts);
+    return this.toResult(t, opts.format);
+  }
+
+  /** Cache-first retrieval of the raw entries (used by getTranscript and by summaries). */
+  async getEntries(videoId: string, opts: Omit<TranscriptOptions, 'format'> = {}): Promise<TranscriptEntries> {
     if (!opts.refresh) {
       const hit = await this.fromCache(videoId, opts);
       if (hit) return hit;
@@ -121,7 +136,8 @@ export class TranscriptService {
       let abortedBy: TranscriptError | null = null;
       let fetchedAny = false;
 
-      const record = (id: string, r: TranscriptResult) => {
+      const record = (id: string, t: TranscriptEntries) => {
+        const r = this.toResult(t, opts.format);
         out.transcripts[id] = opts.format === 'text' ? (r.text ?? '') : (r.transcript ?? []);
         out.tracks[id] = { lang: r.lang, kind: r.kind, cached: r.cached };
       };
@@ -170,8 +186,8 @@ export class TranscriptService {
 
   // --- cache ---------------------------------------------------------------------
 
-  /** Returns a result on hit, null on miss; throws a cached NO_CAPTIONS error. */
-  private async fromCache(videoId: string, opts: TranscriptOptions): Promise<TranscriptResult | null> {
+  /** Returns the entries on hit, null on miss; throws a cached NO_CAPTIONS error. */
+  private async fromCache(videoId: string, opts: Omit<TranscriptOptions, 'format'>): Promise<TranscriptEntries | null> {
     if (!this.cache) return null;
     const hit = await this.cache.get(videoId, opts.lang);
     if (!hit) return null;
@@ -182,10 +198,10 @@ export class TranscriptService {
     const { record } = hit;
     log('info', 'transcript.cache_hit', { videoId, lang: record.lang, kind: record.kind, fetchedAt: record.fetchedAt });
     const entries: TranscriptEntry[] = record.segments.map((s) => ({ ...s, lang: record.lang }));
-    return this.toResult(videoId, { lang: record.lang, kind: record.kind, entries }, opts.format, true, record.fetchedAt);
+    return { videoId, lang: record.lang, kind: record.kind, entries, title: record.title, cached: true, fetchedAt: record.fetchedAt };
   }
 
-  private async fetchAndStore(videoId: string, opts: TranscriptOptions): Promise<TranscriptResult> {
+  private async fetchAndStore(videoId: string, opts: Omit<TranscriptOptions, 'format'>): Promise<TranscriptEntries> {
     const fetchedAt = new Date(this.now()).toISOString();
     let track: FetchedTrack;
     try {
@@ -202,6 +218,7 @@ export class TranscriptService {
       const record: TrackRecord = {
         version: 1,
         videoId,
+        ...(track.title ? { title: track.title } : {}),
         lang: track.lang,
         kind: track.kind,
         ...(opts.lang ? {} : { default: true }),
@@ -212,12 +229,12 @@ export class TranscriptService {
       };
       await this.cache.putTrack(record);
     }
-    return this.toResult(videoId, track, opts.format, false, fetchedAt);
+    return { videoId, ...track, cached: false, fetchedAt };
   }
 
-  private toResult(videoId: string, track: FetchedTrack, format: TranscriptFormat | undefined, cached: boolean, fetchedAt: string): TranscriptResult {
-    const base = { videoId, lang: track.lang, kind: track.kind, cached, fetchedAt };
-    return format === 'text' ? { ...base, text: toPlainText(track.entries) } : { ...base, transcript: track.entries };
+  private toResult(t: TranscriptEntries, format: TranscriptFormat | undefined): TranscriptResult {
+    const base = { videoId: t.videoId, ...(t.title ? { title: t.title } : {}), lang: t.lang, kind: t.kind, cached: t.cached, fetchedAt: t.fetchedAt };
+    return format === 'text' ? { ...base, text: toPlainText(t.entries) } : { ...base, transcript: t.entries };
   }
 
   // --- fetching ------------------------------------------------------------------
@@ -281,7 +298,7 @@ export class TranscriptService {
       stderrLines: result.stderr ? result.stderr.split('\n').filter(Boolean).length : 0,
     });
 
-    return { lang: track.lang, kind: track.kind, entries };
+    return { lang: track.lang, kind: track.kind, entries, ...(info.title ? { title: info.title } : {}) };
   }
 }
 

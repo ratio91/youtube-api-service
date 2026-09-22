@@ -30,6 +30,7 @@ export interface CachedSegment {
 export const trackRecordSchema = z.object({
   version: z.literal(1),
   videoId: z.string().regex(VIDEO_ID_RE),
+  title: z.string().optional(),
   lang: z.string().min(1),
   kind: z.enum(['manual', 'auto']),
   /** written by a request without ?lang= → preferred hit for later default requests */

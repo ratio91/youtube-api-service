@@ -192,6 +192,20 @@ describe('TranscriptService with the persistent cache', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it('stores the video title in the cache and exposes raw entries via getEntries', async () => {
+    const { cache, dir } = tmpCache();
+    const { service } = makeService([ok(INFO_EN)], undefined, {}, cache);
+    const t = await service.getEntries('lXUZvyajciY');
+    expect(t).toMatchObject({ videoId: 'lXUZvyajciY', lang: 'en', kind: 'manual', cached: false });
+    expect(t.title).toMatch(/Karpathy/);
+    expect(t.entries.length).toBeGreaterThan(0);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'lXUZvyajciY.en.json'), 'utf8')).title).toMatch(/Karpathy/);
+    const again = await service.getTranscript('lXUZvyajciY');
+    expect(again.title).toMatch(/Karpathy/);
+    expect(again.cached).toBe(true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it('?lang= uses the cache per track and a default fetch is flagged default', async () => {
     const { cache, dir } = tmpCache();
     const { service, run } = makeService([ok(INFO_EN)], undefined, {}, cache);

@@ -22,6 +22,11 @@ services:
       # The container always listens on 3000; choose the host port via HOST_PORT.
       PORT: "3000"
       TOKEN_PATH: /data/tokens.json
+      # Local LLM (llama-server) runs on the HOST; host.docker.internal resolves to it
+      # via the extra_hosts entry below. Override in .env if the LLM runs elsewhere.
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-3000}:3000"
     volumes:

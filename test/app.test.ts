@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import type { YouTubeService } from '../src/youtube';
 import type { TranscriptService } from '../src/transcripts/service';
+import type { SummaryService } from '../src/summaries/service';
 import type { HealthReport } from '../src/health';
 
 // src/config.ts parses process.env at import time and calls process.exit(1)
@@ -18,6 +19,7 @@ delete process.env.DEFAULT_PLAYLIST_ID;
 
 const { createApp } = await import('../src/app');
 const { TranscriptError } = await import('../src/transcripts/errors');
+const { LlmError } = await import('../src/llm/errors');
 
 const GOOD_AUTH = 'Basic ' + Buffer.from('testuser:testpass').toString('base64');
 const BAD_AUTH = 'Basic ' + Buffer.from('testuser:wrong-password').toString('base64');
@@ -80,15 +82,28 @@ const HEALTH_OK: HealthReport = {
   oauth: 'ok',
   transcripts: { backend: 'yt-dlp', version: '2026.08.19', ok: true, jsRuntime: { requested: 'node', detected: 'node-24.21.0', present: true }, ejs: '0.8.0' },
   cache: { dir: '/data/transcripts', files: 3, sizeBytes: 12345, writable: true },
+  llm: { ok: true, baseUrl: 'http://host.docker.internal:8000/v1', model: 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf', contextTokens: 65536, build: 'b9598' },
+  summaryCache: { dir: '/data/summaries', files: 1, sizeBytes: 2048, writable: true },
   authorized: true,
   timestamp: '2026-09-22T00:00:00.000Z',
 };
 
-function makeApp(opts: { youtube?: YtOverrides | null; transcripts?: TxOverrides; health?: HealthReport; batchMax?: number } = {}) {
+const SUMMARY = { videoId: 'fW4SwcMQYdA', title: 'Vortrag', lang: 'de', kind: 'auto', summaryLang: 'de', model: 'fake', promptVersion: 1, strategy: 'single', chunks: 1, cached: false, createdAt: 'c', durationMs: 90000, truncated: false, markdown: '## TL;DR\nText.' };
+type SumOverrides = Partial<Record<keyof SummaryService, unknown>>;
+function makeFakeSummaries(overrides: SumOverrides = {}): SummaryService {
+  return {
+    getSummary: vi.fn(async (videoId: string) => ({ ...SUMMARY, videoId })),
+    listSummaries: vi.fn(async () => [{ videoId: 'fW4SwcMQYdA', title: 'Vortrag', lang: 'de', kind: 'auto', summaryLang: 'de', model: 'fake', strategy: 'single', createdAt: 'c' }]),
+    ...overrides,
+  } as unknown as SummaryService;
+}
+
+function makeApp(opts: { youtube?: YtOverrides | null; transcripts?: TxOverrides; summaries?: SumOverrides | null; health?: HealthReport; batchMax?: number } = {}) {
   const youtube = opts.youtube === null ? null : makeFakeYouTube(opts.youtube);
   const transcripts = makeFakeTranscripts(opts.transcripts);
+  const summaries = opts.summaries === null ? null : makeFakeSummaries(opts.summaries);
   const health = vi.fn(async () => opts.health ?? HEALTH_OK);
-  return { app: createApp({ youtube, transcripts, health, batchMax: opts.batchMax }), youtube, transcripts, health };
+  return { app: createApp({ youtube, transcripts, summaries, health, batchMax: opts.batchMax }), youtube, transcripts, summaries, health };
 }
 
 const VID = 'lXUZvyajciY';
@@ -356,5 +371,57 @@ describe('GET /transcripts (cache listing)', () => {
     expect(transcripts.listCached).toHaveBeenCalledOnce();
     expect(res.body.count).toBe(1);
     expect(res.body.transcripts[0]).toMatchObject({ videoId: 'lXUZvyajciY', lang: 'en', kind: 'manual' });
+  });
+});
+
+describe('GET /summary/:videoId', () => {
+  it('returns the summary and forwards lang/summaryLang/refresh', async () => {
+    const { app, summaries } = makeApp();
+    const res = await request(app).get('/summary/fW4SwcMQYdA').query({ lang: 'de', summaryLang: 'en', refresh: 'true' }).set('Authorization', GOOD_AUTH);
+    expect(res.status).toBe(200);
+    expect(summaries!.getSummary).toHaveBeenCalledWith('fW4SwcMQYdA', { lang: 'de', summaryLang: 'en', refresh: true });
+    expect(res.body).toMatchObject({ videoId: 'fW4SwcMQYdA', summaryLang: 'de', markdown: '## TL;DR\nText.', cached: false });
+    expect(typeof res.body.timestamp).toBe('string');
+  });
+
+  it('requires auth and validates the id and language params', async () => {
+    const { app, summaries } = makeApp();
+    expect((await request(app).get('/summary/fW4SwcMQYdA')).status).toBe(401);
+    expect((await request(app).get('/summary/bad').set('Authorization', GOOD_AUTH)).status).toBe(400);
+    expect((await request(app).get('/summary/fW4SwcMQYdA').query({ summaryLang: 'not a lang' }).set('Authorization', GOOD_AUTH)).status).toBe(400);
+    expect(summaries!.getSummary).not.toHaveBeenCalled();
+  });
+
+  it('maps transcript 404s, LLM outages (503) and other failures (500)', async () => {
+    const noCaps = makeApp({ summaries: { getSummary: vi.fn(async () => { throw new TranscriptError('NO_CAPTIONS', 'none', { cached: true }); }) } });
+    const r1 = await request(noCaps.app).get('/summary/ScMzIvxBSi4').set('Authorization', GOOD_AUTH);
+    expect(r1.status).toBe(404);
+    expect(r1.body).toMatchObject({ videoId: 'ScMzIvxBSi4', available: false, cached: true });
+    const down = makeApp({ summaries: { getSummary: vi.fn(async () => { throw new LlmError('LLM_UNAVAILABLE', 'cannot reach LLM'); }) } });
+    const r2 = await request(down.app).get('/summary/fW4SwcMQYdA').set('Authorization', GOOD_AUTH);
+    expect(r2.status).toBe(503);
+    expect(r2.body).toMatchObject({ code: 'LLM_UNAVAILABLE', retryable: true });
+    const boom = makeApp({ summaries: { getSummary: vi.fn(async () => { throw new Error('boom'); }) } });
+    const r3 = await request(boom.app).get('/summary/fW4SwcMQYdA').set('Authorization', GOOD_AUTH);
+    expect(r3.status).toBe(500);
+    expect(r3.body).toMatchObject({ code: 'SUMMARY_FAILED', error: 'boom' });
+  });
+
+  it('answers 503 when summaries are disabled', async () => {
+    const { app } = makeApp({ summaries: null });
+    const res = await request(app).get('/summary/fW4SwcMQYdA').set('Authorization', GOOD_AUTH);
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe('summaries disabled');
+  });
+});
+
+describe('GET /summaries', () => {
+  it('lists cached summaries with a count', async () => {
+    const { app } = makeApp();
+    expect((await request(app).get('/summaries')).status).toBe(401);
+    const res = await request(app).get('/summaries').set('Authorization', GOOD_AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.summaries[0]).toMatchObject({ videoId: 'fW4SwcMQYdA', summaryLang: 'de' });
   });
 });

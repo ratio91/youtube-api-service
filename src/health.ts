@@ -1,5 +1,6 @@
 import { OAuthCheck, YouTubeService } from './youtube';
 import { CacheStats } from './transcripts/cache';
+import { LlmProbe } from './llm/client';
 
 export interface TranscriptsHealth {
   backend: 'yt-dlp';
@@ -23,6 +24,9 @@ export interface HealthReport {
   transcripts: TranscriptsHealth;
   /** persistent transcript cache; null when no cache is configured */
   cache: CacheStats | null;
+  /** local LLM used for summaries; does not affect `status` (transcripts work without it) */
+  llm: LlmProbe | null;
+  summaryCache: CacheStats | null;
   /** legacy field (pre-2026-09): true only when oauth === "ok" */
   authorized: boolean;
   timestamp: string;
@@ -33,6 +37,11 @@ export interface HealthDeps {
   probeTranscripts: () => Promise<TranscriptsHealth>;
   /** already memoised by TranscriptCache.stats() */
   cacheStats?: () => Promise<CacheStats>;
+  /** LLM liveness probe; cached here for `llmCacheMs` (default 60 s) */
+  probeLlm?: () => Promise<LlmProbe>;
+  llmCacheMs?: number;
+  /** already memoised by SummaryStore.stats() */
+  summaryStats?: () => Promise<CacheStats>;
   oauthCacheMs: number;
   /** re-probe interval for a failing transcript backend */
   transcriptsRecheckMs?: number;
@@ -51,6 +60,16 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
   let oauthCache: { at: number; value: OAuthCheck } | null = null;
   let oauthInFlight: Promise<OAuthCheck> | null = null;
   let transcriptsCache: { at: number; value: TranscriptsHealth } | null = null;
+  let llmCache: { at: number; value: LlmProbe } | null = null;
+  const llmCacheMs = deps.llmCacheMs ?? 60_000;
+
+  async function llmStatus(): Promise<LlmProbe | null> {
+    if (!deps.probeLlm) return null;
+    if (llmCache && now() - llmCache.at < llmCacheMs) return llmCache.value;
+    const value = await deps.probeLlm();
+    llmCache = { at: now(), value };
+    return value;
+  }
 
   async function oauthStatus(): Promise<OAuthCheck | null> {
     if (!deps.youtube) return null;
@@ -80,7 +99,13 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
   }
 
   return async () => {
-    const [oauth, transcripts, cache] = await Promise.all([oauthStatus(), transcriptsStatus(), deps.cacheStats ? deps.cacheStats() : Promise.resolve(null)]);
+    const [oauth, transcripts, cache, llm, summaryCache] = await Promise.all([
+      oauthStatus(),
+      transcriptsStatus(),
+      deps.cacheStats ? deps.cacheStats() : Promise.resolve(null),
+      llmStatus(),
+      deps.summaryStats ? deps.summaryStats() : Promise.resolve(null),
+    ]);
     return {
       status: transcripts.ok && transcripts.jsRuntime.present ? 'ok' : 'degraded',
       mode: deps.youtube ? 'full' : 'transcript-only',
@@ -88,6 +113,8 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
       ...(oauth ? { oauthDetail: oauth } : {}),
       transcripts,
       cache,
+      llm,
+      summaryCache,
       authorized: oauth?.status === 'ok',
       timestamp: new Date().toISOString(),
     };

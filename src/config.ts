@@ -44,6 +44,17 @@ const envSchema = z
     TRANSCRIPT_CACHE_DIR: z.string().default('/data/transcripts'),
     // How long a "no captions" result is trusted before YouTube is asked again
     NO_CAPTIONS_TTL_DAYS: z.coerce.number().min(0).default(7),
+
+    // Local LLM (OpenAI-compatible, e.g. llama.cpp llama-server) for summaries
+    LLM_BASE_URL: z.string().url().default('http://127.0.0.1:8000/v1'),
+    LLM_API_KEY: optionalString,
+    LLM_MODEL: z.string().default('default'),
+    LLM_TIMEOUT_MS: positiveInt(600_000),
+    // Context window; when unset the value reported by llama-server /props is used
+    LLM_CONTEXT_TOKENS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.coerce.number().int().min(1024).optional()),
+    LLM_MAX_OUTPUT_TOKENS: positiveInt(2000),
+    SUMMARY_CHARS_PER_TOKEN: z.coerce.number().min(1).default(3.5),
+    SUMMARY_CACHE_DIR: z.string().default('/data/summaries'),
   })
   .superRefine((env, ctx) => {
     const trio = ['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'OAUTH_REDIRECT_URI'] as const;

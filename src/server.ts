@@ -5,6 +5,10 @@ import { createHealthProvider, TranscriptsHealth } from './health';
 import { TranscriptService } from './transcripts/service';
 import { TranscriptCache } from './transcripts/cache';
 import { createYtDlpRunner, probeYtDlp, YtDlpProbe } from './transcripts/ytdlp';
+import { LlmClient } from './llm/client';
+import { Summarizer } from './summaries/summarizer';
+import { SummaryStore } from './summaries/store';
+import { SummaryService } from './summaries/service';
 import { log } from './log';
 
 const youtube = config.oauth ? new YouTubeService(config.oauth, config.TOKEN_PATH) : null;
@@ -43,18 +47,40 @@ const transcripts = new TranscriptService({
   },
 });
 
+// --- summaries via the local LLM ---------------------------------------------
+const llm = new LlmClient({ baseUrl: config.LLM_BASE_URL, apiKey: config.LLM_API_KEY, model: config.LLM_MODEL, timeoutMs: config.LLM_TIMEOUT_MS });
+let lastLlmProbe: Awaited<ReturnType<LlmClient['probe']>> | null = null;
+async function probeLlm() {
+  lastLlmProbe = await llm.probe();
+  return lastLlmProbe;
+}
+const DEFAULT_CONTEXT_TOKENS = 32_768;
+const summaryStore = new SummaryStore({ dir: config.SUMMARY_CACHE_DIR });
+const summarizer = new Summarizer({
+  client: llm,
+  // explicit env wins; otherwise what the server reports; otherwise a safe default
+  contextTokens: () => config.LLM_CONTEXT_TOKENS ?? lastLlmProbe?.contextTokens ?? DEFAULT_CONTEXT_TOKENS,
+  maxOutputTokens: config.LLM_MAX_OUTPUT_TOKENS,
+  charsPerToken: config.SUMMARY_CHARS_PER_TOKEN,
+});
+const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore });
+
 const health = createHealthProvider({
   youtube,
   probeTranscripts,
   cacheStats: () => cache.stats(),
+  probeLlm,
+  summaryStats: () => summaryStore.stats(),
   oauthCacheMs: config.HEALTH_OAUTH_CACHE_MS,
 });
 
-const app = createApp({ youtube, transcripts, health });
+const app = createApp({ youtube, transcripts, summaries, health });
 
 async function main() {
   const t = await probeTranscripts(); // populates lastProbe before the first fetch is cached
   await cache.init();
+  await summaryStore.init();
+  const l = await probeLlm();
   app.listen(config.PORT, () => {
     log('info', 'server.started', {
       port: config.PORT,
@@ -67,6 +93,9 @@ async function main() {
       cacheWritable: cache.isWritable(),
       noCaptionsTtlDays: config.NO_CAPTIONS_TTL_DAYS,
       batchDelayMs: config.TRANSCRIPT_BATCH_DELAY_MS,
+      llm: { baseUrl: l.baseUrl, ok: l.ok, model: l.model, contextTokens: config.LLM_CONTEXT_TOKENS ?? l.contextTokens ?? DEFAULT_CONTEXT_TOKENS, ...(l.error ? { error: l.error } : {}) },
+      summaryDir: config.SUMMARY_CACHE_DIR,
+      summaryWritable: summaryStore.isWritable(),
     });
     if (youtube && !youtube.isAuthorized()) {
       log('info', 'oauth.not_authorized', { hint: 'GET /auth/url to start the OAuth flow' });

@@ -5,6 +5,7 @@ import { basicAuth } from './auth';
 import { config } from './config';
 import { HealthReport } from './health';
 import { TranscriptService, TranscriptFormat } from './transcripts/service';
+import { SummaryService, summaryErrorResponse } from './summaries/service';
 import { toTranscriptError } from './transcripts/service';
 import { VIDEO_ID_RE } from './transcripts/ytdlp';
 import { log, errorMessage } from './log';
@@ -13,6 +14,8 @@ export interface AppDeps {
   /** null → transcript-only mode */
   youtube: YouTubeService | null;
   transcripts: TranscriptService;
+  /** null → summary routes answer 503 */
+  summaries: SummaryService | null;
   health: () => Promise<HealthReport>;
   batchMax?: number;
 }
@@ -28,6 +31,7 @@ const refreshParam = z
   .transform((v) => v === 'true' || v === '1');
 
 const transcriptQuerySchema = z.object({ lang: langParam, format: formatParam, refresh: refreshParam });
+const summaryQuerySchema = z.object({ lang: langParam, summaryLang: langParam, refresh: refreshParam });
 const batchBodySchema = z.object({
   videoIds: z.array(z.string().regex(VIDEO_ID_RE, 'invalid YouTube video id')),
   lang: langParam,
@@ -210,6 +214,43 @@ export function createApp(deps: AppDeps) {
       res.json({ ...result, timestamp: new Date().toISOString() });
     } catch (error) {
       log('error', 'route.batch_failed', { error: errorMessage(error) });
+      res.status(500).json({ error: errorMessage(error) });
+    }
+  });
+
+  // --- Summaries (local LLM) -----------------------------------------------------
+
+  app.get('/summary/:videoId', basicAuth, async (req: Request, res: Response) => {
+    const { videoId } = req.params;
+    if (!VIDEO_ID_RE.test(videoId)) {
+      return res.status(400).json({ error: 'invalid YouTube video id' });
+    }
+    const query = summaryQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({ error: firstIssue(query.error) });
+    }
+    if (!deps.summaries) {
+      return res.status(503).json({ error: 'summaries disabled', code: 'SUMMARIES_DISABLED', retryable: false, status: 503 });
+    }
+    try {
+      const result = await deps.summaries.getSummary(videoId, query.data);
+      res.json({ ...result, timestamp: new Date().toISOString() });
+    } catch (error) {
+      const { status, body } = summaryErrorResponse(error);
+      if (status >= 500) log('error', 'route.summary_failed', { videoId, ...body });
+      res.status(status).json({ videoId, ...body });
+    }
+  });
+
+  app.get('/summaries', basicAuth, async (_req: Request, res: Response) => {
+    if (!deps.summaries) {
+      return res.status(503).json({ error: 'summaries disabled' });
+    }
+    try {
+      const summaries = await deps.summaries.listSummaries();
+      res.json({ count: summaries.length, summaries, timestamp: new Date().toISOString() });
+    } catch (error) {
+      log('error', 'route.summaries_list_failed', { error: errorMessage(error) });
       res.status(500).json({ error: errorMessage(error) });
     }
   });
