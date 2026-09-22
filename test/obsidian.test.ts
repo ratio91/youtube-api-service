@@ -95,6 +95,19 @@ describe('ObsidianExporter', () => {
     expect(fs.readdirSync(dir).filter((n) => n.endsWith('.md'))).toEqual(['Zeilinger.md']);
   });
 
+  it('moves a placeholder-named note to the real title once known, but respects user renames', async () => {
+    const ex = new ObsidianExporter({ dir, tags: [] });
+    await ex.init();
+    const first = await ex.export(rec({ title: undefined }));
+    expect(first.fileName).toBe('YouTube fW4SwcMQYdA.md');
+    const second = await ex.export(rec({ title: 'Echter Titel' }));
+    expect(second.fileName).toBe('Echter Titel.md');
+    expect(fs.readdirSync(dir).filter((n) => n.endsWith('.md'))).toEqual(['Echter Titel.md']);
+    // a later title change does NOT rename a real-titled note
+    const third = await ex.export(rec({ title: 'Anderer Titel' }));
+    expect(third.fileName).toBe('Echter Titel.md');
+  });
+
   it('two different videos with the same title get distinct files', async () => {
     const ex = new ObsidianExporter({ dir, tags: [] });
     await ex.init();

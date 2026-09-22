@@ -141,12 +141,17 @@ export class ObsidianExporter {
   /** Write (or overwrite) the note. Throws on I/O failure so the caller can report it. */
   async export(rec: SummaryRecord): Promise<ExportResult> {
     const existing = await this.findExisting(rec.videoId);
-    const target = existing ?? path.join(this.dir, await this.freeFileName(noteBaseName(rec.title, rec.videoId)));
+    const wanted = noteBaseName(rec.title, rec.videoId);
+    // A note that was created before the title was known carries the placeholder name;
+    // move it to the real title now. User renames (anything else) are respected.
+    const placeholder = existing !== null && path.basename(existing, '.md') === noteBaseName(undefined, rec.videoId) && wanted !== noteBaseName(undefined, rec.videoId);
+    const target = existing && !placeholder ? existing : path.join(this.dir, await this.freeFileName(wanted));
     const tmp = path.join(this.dir, TMP_DIR, `${path.basename(target)}.${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
     await fsp.mkdir(path.dirname(tmp), { recursive: true });
     try {
       await fsp.writeFile(tmp, renderNote(rec, this.tags), { mode: 0o644 });
       await fsp.rename(tmp, target);
+      if (placeholder && existing && existing !== target) await fsp.unlink(existing);
     } catch (err) {
       try {
         if (fs.existsSync(tmp)) await fsp.unlink(tmp);
@@ -155,7 +160,7 @@ export class ObsidianExporter {
       }
       throw err;
     }
-    log('info', 'notes.exported', { videoId: rec.videoId, file: path.basename(target), overwritten: existing !== null });
+    log('info', 'notes.exported', { videoId: rec.videoId, file: path.basename(target), overwritten: existing !== null, renamedFromPlaceholder: placeholder });
     return { path: target, fileName: path.basename(target), created: existing === null };
   }
 }

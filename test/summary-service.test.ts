@@ -124,6 +124,27 @@ describe('SummaryService with the Obsidian exporter', () => {
     fs.rmSync(notesDir, { recursive: true, force: true });
   });
 
+  it('fills title/channel/duration into an old cached summary from the transcript and renames the note', async () => {
+    const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytnotes-'));
+    const exporter = new ObsidianExporter({ dir: notesDir, tags: ['video'] });
+    await exporter.init();
+    // transcript without metadata first (old cache), then with
+    let meta: Record<string, unknown> = {};
+    const transcripts = { getEntries: vi.fn(async (videoId: string) => ({ videoId, lang: 'de', kind: 'auto', entries: ENTRIES, cached: true, fetchedAt: 'f', ...meta })) } as unknown as TranscriptService;
+    const { service, store } = make({ exporter, transcripts: transcripts as unknown as Partial<TranscriptService> });
+    const a = await service.getSummary('fW4SwcMQYdA');
+    expect(a.title).toBeUndefined();
+    expect(a.note?.fileName).toBe('YouTube fW4SwcMQYdA.md');
+
+    meta = { title: 'Vortrag', channel: 'Uni', durationSec: 600 }; // transcript refreshed with metadata
+    const b = await service.getSummary('fW4SwcMQYdA', { export: true });
+    expect(b).toMatchObject({ cached: true, title: 'Vortrag', channel: 'Uni', durationSec: 600 });
+    expect(b.note?.fileName).toBe('Vortrag.md');
+    expect(fs.readdirSync(notesDir).filter((n) => n.endsWith('.md'))).toEqual(['Vortrag.md']);
+    expect((await store.get('fW4SwcMQYdA', 'de'))?.title).toBe('Vortrag');
+    fs.rmSync(notesDir, { recursive: true, force: true });
+  });
+
   it('an export failure is reported in the result but does not fail the summary', async () => {
     const file = path.join(dir, 'blocker');
     fs.writeFileSync(file, 'x');

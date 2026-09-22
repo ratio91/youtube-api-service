@@ -505,7 +505,7 @@ Reading is nearly free; **sorting 100 videos into topic playlists (add + remove)
 npm ci
 npm run dev        # ts-node, http://localhost:3000 (needs yt-dlp on PATH for transcripts)
 npm run build
-npm test           # vitest: 164 unit/route tests, no network
+npm test           # vitest: 166 unit/route tests, no network
 ```
 
 `package-lock.json` is committed — use `npm ci`.

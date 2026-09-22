@@ -62,15 +62,19 @@ export class SummaryService {
       const hit = await this.deps.store.get(videoId, summaryLang);
       if (hit) {
         log('info', 'summary.cache_hit', { videoId, summaryLang, createdAt: hit.createdAt, model: hit.model });
+        const enriched = await this.enrich(hit, track);
         // Cache hits never re-create a note (a note moved out of the inbox must stay gone) — unless asked.
-        return opts.export ? this.withExport(hit, true) : toResult(hit, true);
+        return opts.export ? this.withExport(enriched, true) : toResult(enriched, true);
       }
     }
 
     return this.enqueue(async () => {
       if (!opts.refresh) {
         const hit = await this.deps.store.get(videoId, summaryLang);
-        if (hit) return opts.export ? this.withExport(hit, true) : toResult(hit, true);
+        if (hit) {
+          const enriched = await this.enrich(hit, track);
+          return opts.export ? this.withExport(enriched, true) : toResult(enriched, true);
+        }
       }
       const createdAt = new Date((this.deps.now ?? Date.now)()).toISOString();
       const out = await this.deps.summarizer.summarize({ videoId, title: track.title, lang: track.lang, entries: track.entries, summaryLang });
@@ -102,6 +106,22 @@ export class SummaryService {
 
   listSummaries(): Promise<SummaryListEntry[]> {
     return this.deps.store.list();
+  }
+
+  /**
+   * Summaries generated before title/channel/duration were cached lack them; fill them
+   * in from the (current) transcript record so notes and listings get the real title.
+   */
+  private async enrich(hit: SummaryRecord, track: { title?: string; channel?: string; durationSec?: number }): Promise<SummaryRecord> {
+    const patch: Partial<SummaryRecord> = {};
+    if (!hit.title && track.title) patch.title = track.title;
+    if (!hit.channel && track.channel) patch.channel = track.channel;
+    if (!hit.durationSec && track.durationSec) patch.durationSec = track.durationSec;
+    if (Object.keys(patch).length === 0) return hit;
+    const updated = { ...hit, ...patch };
+    await this.deps.store.put(updated);
+    log('info', 'summary.enriched', { videoId: hit.videoId, fields: Object.keys(patch) });
+    return updated;
   }
 
   /** Export the note (when an exporter is configured); failures are reported, never thrown. */
