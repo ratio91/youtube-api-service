@@ -108,6 +108,24 @@ describe('ObsidianExporter', () => {
     expect(third.fileName).toBe('Echter Titel.md');
   });
 
+  it('listNotes reports every note by its frontmatter video_id; a note moved out disappears', async () => {
+    const ex = new ObsidianExporter({ dir, tags: ['video'] });
+    await ex.init();
+    await ex.export(rec());
+    await ex.export(rec({ videoId: 'lXUZvyajciY', title: 'Other talk' }));
+    fs.writeFileSync(path.join(dir, 'My own note.md'), '# no frontmatter\n');
+    fs.writeFileSync(path.join(dir, 'Bad id.md'), '---\nvideo_id: tooShort\n---\n');
+    const list = await ex.listNotes();
+    expect(list.map((n) => n.videoId).sort()).toEqual(['fW4SwcMQYdA', 'lXUZvyajciY']);
+    const other = list.find((n) => n.videoId === 'lXUZvyajciY')!;
+    expect(other.fileName).toBe('Other talk.md');
+    expect(Number.isNaN(Date.parse(other.modifiedAt))).toBe(false);
+    fs.renameSync(path.join(dir, other.fileName), path.join(os.tmpdir(), `moved-${Date.now()}.md`)); // consumed
+    expect((await ex.listNotes()).map((n) => n.videoId)).toEqual(['fW4SwcMQYdA']);
+    expect(await ex.findExisting('lXUZvyajciY')).toBeNull();
+    expect(await new ObsidianExporter({ dir: path.join(dir, 'missing'), tags: [] }).listNotes()).toEqual([]);
+  });
+
   it('two different videos with the same title get distinct files', async () => {
     const ex = new ObsidianExporter({ dir, tags: [] });
     await ex.init();

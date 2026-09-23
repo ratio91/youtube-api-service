@@ -234,3 +234,19 @@ describe('POST /classify/:videoId', () => {
     expect((await request(app(null)).post(`/classify/${VID}`).set('Authorization', AUTH).send({ playlists: PLAYLISTS })).status).toBe(503);
   });
 });
+
+describe('GET /notes', () => {
+  const health = async () => ({}) as HealthReport;
+  const notes = [{ videoId: VID, fileName: 'Bonds.md', modifiedAt: '2026-09-23T10:00:00.000Z' }];
+  it('requires auth, lists the inbox notes, answers 503 when export is disabled', async () => {
+    const a = createApp({ youtube: null, transcripts: {} as TranscriptService, summaries: null, notes: { listNotes: async () => notes }, health });
+    expect((await request(a).get('/notes')).status).toBe(401);
+    const res = await request(a).get('/notes').set('Authorization', AUTH);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ count: 1, notes });
+    const off = createApp({ youtube: null, transcripts: {} as TranscriptService, summaries: null, notes: null, health });
+    const r2 = await request(off).get('/notes').set('Authorization', AUTH);
+    expect(r2.status).toBe(503);
+    expect(r2.body.code).toBe('NOTES_DISABLED');
+  });
+});

@@ -94,7 +94,7 @@ const health = createHealthProvider({
   oauthCacheMs: config.HEALTH_OAUTH_CACHE_MS,
 });
 
-const app = createApp({ youtube, transcripts, summaries, classify, health });
+const app = createApp({ youtube, transcripts, summaries, classify, notes: exporter ?? null, health });
 
 async function main() {
   const t = await probeTranscripts(); // populates lastProbe before the first fetch is cached

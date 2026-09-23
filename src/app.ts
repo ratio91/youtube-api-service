@@ -8,6 +8,7 @@ import { TranscriptService, TranscriptFormat } from './transcripts/service';
 import { SummaryService, summaryErrorResponse } from './summaries/service';
 import { ClassifyService, isNoSummaryError } from './classify/service';
 import { NONE } from './classify/prompts';
+import type { NoteEntry } from './notes/obsidian';
 import { isLlmError } from './llm/errors';
 import { toTranscriptError } from './transcripts/service';
 import { VIDEO_ID_RE } from './transcripts/ytdlp';
@@ -21,6 +22,8 @@ export interface AppDeps {
   summaries: SummaryService | null;
   /** null → /classify answers 503 */
   classify?: ClassifyService | null;
+  /** notes in the Obsidian inbox; null → /notes answers 503 (export disabled) */
+  notes?: { listNotes(): Promise<NoteEntry[]> } | null;
   health: () => Promise<HealthReport>;
   batchMax?: number;
 }
@@ -309,6 +312,21 @@ export function createApp(deps: AppDeps) {
       res.json({ count: summaries.length, summaries, timestamp: new Date().toISOString() });
     } catch (error) {
       log('error', 'route.summaries_list_failed', { error: errorMessage(error) });
+      res.status(500).json({ error: errorMessage(error) });
+    }
+  });
+
+  // Notes still in the Obsidian inbox (the Syncthing mirror of the vault's video-inbox).
+  // A summary with exportedAt whose video is missing here was moved out = consumed.
+  app.get('/notes', basicAuth, async (_req: Request, res: Response) => {
+    if (!deps.notes) {
+      return res.status(503).json({ error: 'note export disabled', code: 'NOTES_DISABLED', retryable: false, status: 503 });
+    }
+    try {
+      const notes = await deps.notes.listNotes();
+      res.json({ count: notes.length, notes, timestamp: new Date().toISOString() });
+    } catch (error) {
+      log('error', 'route.notes_list_failed', { error: errorMessage(error) });
       res.status(500).json({ error: errorMessage(error) });
     }
   });

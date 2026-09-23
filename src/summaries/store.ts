@@ -42,6 +42,8 @@ export interface SummaryListEntry {
   model: string | null;
   strategy: 'single' | 'chunked';
   createdAt: string;
+  /** when the Obsidian note was last written; absent = never exported */
+  exportedAt?: string;
 }
 
 const FILE_RE = /^([A-Za-z0-9_-]{11})\.([A-Za-z0-9-]+)\.json$/;
@@ -123,7 +125,7 @@ export class SummaryStore {
     for (const name of names) {
       if (!FILE_RE.test(name)) continue;
       const rec = await readJsonValidated(this.dir, name, summaryRecordSchema);
-      if (rec) out.push({ videoId: rec.videoId, title: rec.title, lang: rec.lang, kind: rec.kind, summaryLang: rec.summaryLang, model: rec.model, strategy: rec.strategy, createdAt: rec.createdAt });
+      if (rec) out.push({ videoId: rec.videoId, title: rec.title, lang: rec.lang, kind: rec.kind, summaryLang: rec.summaryLang, model: rec.model, strategy: rec.strategy, createdAt: rec.createdAt, ...(rec.exportedAt ? { exportedAt: rec.exportedAt } : {}) });
     }
     out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     this.listMemo = { at: this.now(), value: out };

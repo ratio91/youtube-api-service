@@ -398,6 +398,9 @@ truncation = `finish_reason: length`). The real taxonomy and labels (299 labelle
 37 `needsReview`) stay out of git; the eval tool reports `needsReview` rows separately.
 **Next gate:** eval on the labelled videos once the backlog has their summaries; nothing
 writes to yt_inbox before the operator has seen the numbers.
+*Superseded in part by "2026-09-23 — Suggestions in their own columns; approval via
+`status = approved`": suggestions are written to their own `suggest*` columns before the
+eval gate; the eval gates bulk approval, not the writing of suggestions.*
 - Deployed `4105f11` (health ok, classification cache writable). Smoke test on one
   labelled video: correct playlist, confidence high; first call 99 s (queued behind a
   running summary — shared LLM queue working), second call 13 ms from cache. Only 1 of
@@ -427,3 +430,13 @@ touch their own columns; the eval gates bulk approval.
 
 Suggestions are approved in the `yt_inbox` table view (`status = approved`). Approving
 from Obsidian frontmatter was discussed and deferred; see `docs/backlog.md`.
+
+## 2026-09-23 — "Consumed" notes from the inbox mirror, not the vault
+
+Operator: moving a note out of `video-inbox` means consumed; no access to the full
+vault. The home machine's `data/obsidian-inbox` is the Syncthing mirror of exactly that
+folder, so the service answers it: new `GET /notes` (notes by frontmatter `video_id`)
+and `exportedAt` in `GET /summaries`. Consumed = exported and not in `/notes` (a deleted
+note counts too). The nightly workflow sets a new `yt_inbox` column `noteConsumedAt`
+once per video (owner: nightly workflow; never cleared); no marking unless `/notes`
+answered a clean 200. Column added by the operator's n8n agent.

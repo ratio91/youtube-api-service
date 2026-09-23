@@ -34,6 +34,13 @@ const STIGNORE = `// written by youtube-api-service: temp files of the note expo
 const FORBIDDEN = /[\\/:*?"<>|#^[\]\u0000-\u001f]/g;
 const MAX_NAME = 120;
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+const VIDEO_ID_LINE_RE = /^video_id:\s*([A-Za-z0-9_-]{11})\s*$/m;
+
+export interface NoteEntry {
+  videoId: string;
+  fileName: string;
+  modifiedAt: string;
+}
 
 export function noteBaseName(title: string | undefined, videoId: string): string {
   let name = (title ?? '').replace(FORBIDDEN, ' ').replace(/\s+/g, ' ').replace(/^[.\s]+|[.\s]+$/g, '').trim();
@@ -102,14 +109,19 @@ export class ObsidianExporter {
     return { dir: this.dir, ...s, writable: this.writable, ...(error ? { error } : {}) };
   }
 
-  /** Path of an existing note for this video (by frontmatter video_id), if any. */
-  async findExisting(videoId: string): Promise<string | null> {
+  /**
+   * Notes currently in the export directory, identified by their frontmatter `video_id`.
+   * The directory is the Syncthing mirror of the vault inbox, so a note the operator moved
+   * out of the inbox (consumed) disappears from this list.
+   */
+  async listNotes(): Promise<NoteEntry[]> {
     let names: string[];
     try {
       names = (await fsp.readdir(this.dir)).filter((n) => n.endsWith('.md'));
     } catch {
-      return null;
+      return [];
     }
+    const out: NoteEntry[] = [];
     for (const name of names) {
       const file = path.join(this.dir, name);
       try {
@@ -117,9 +129,9 @@ export class ObsidianExporter {
         try {
           const buf = Buffer.alloc(2048);
           const { bytesRead } = await fh.read(buf, 0, 2048, 0);
-          const head = buf.subarray(0, bytesRead).toString('utf8');
-          const fm = FRONTMATTER_RE.exec(head)?.[1];
-          if (fm && new RegExp(`^video_id:\\s*${videoId}\\s*$`, 'm').test(fm)) return file;
+          const fm = FRONTMATTER_RE.exec(buf.subarray(0, bytesRead).toString('utf8'))?.[1];
+          const videoId = fm ? VIDEO_ID_LINE_RE.exec(fm)?.[1] : undefined;
+          if (videoId) out.push({ videoId, fileName: name, modifiedAt: (await fh.stat()).mtime.toISOString() });
         } finally {
           await fh.close();
         }
@@ -127,7 +139,13 @@ export class ObsidianExporter {
         /* unreadable note: skip */
       }
     }
-    return null;
+    return out;
+  }
+
+  /** Path of an existing note for this video (by frontmatter video_id), if any. */
+  async findExisting(videoId: string): Promise<string | null> {
+    const hit = (await this.listNotes()).find((n) => n.videoId === videoId);
+    return hit ? path.join(this.dir, hit.fileName) : null;
   }
 
   private async freeFileName(base: string): Promise<string> {

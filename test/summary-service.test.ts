@@ -98,6 +98,7 @@ describe('SummaryService', () => {
     const list = await service.listSummaries();
     expect(list.map((e) => e.videoId)).toEqual(['lXUZvyajciY', 'fW4SwcMQYdA']);
     expect(list[0]).toMatchObject({ summaryLang: 'en', model: 'fake', strategy: 'single', title: 'Vortrag' });
+    expect(list[0]).not.toHaveProperty('exportedAt'); // no exporter → never exported
   });
 
   it('store: invalid file is a miss, stats count files', async () => {
@@ -123,6 +124,8 @@ describe('SummaryService with the Obsidian exporter', () => {
     expect(noteText).toContain('channel: "Uni"');
     expect(noteText).toContain('duration: "10:00"');
     expect((await store.get('fW4SwcMQYdA', 'de'))?.exportPath).toBe(path.join(notesDir, 'Vortrag.md'));
+    // the listing carries exportedAt, the basis of the "consumed" check (exported + not in /notes)
+    expect((await service.listSummaries())[0].exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     fs.unlinkSync(path.join(notesDir, 'Vortrag.md')); // user "moved" the note out of the inbox
     const b = await service.getSummary('fW4SwcMQYdA');

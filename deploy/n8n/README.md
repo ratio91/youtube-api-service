@@ -9,14 +9,15 @@ service, whether the video is still in the inbox playlist or already sorted out 
 Nightly 01:00 → Config → Health → Service ready? ─no→ Not ready (stop)
                                        │yes
                                        ▼
-          Known Summaries (GET /summaries) → Get Playlists (taxonomy table)
+  Known Summaries (GET /summaries) → Get Notes (GET /notes) → Get Playlists (taxonomy table)
                                        ▼
                          Get Rows (all yt_inbox rows, once)
-                           │                         │
-                           ▼                         ▼
-             Already Summarised → Mark Done      Plan: "classify" items (summary exists, no
-                                                 suggestion yet) first, then "summarize"
-                                                 items newest first; cap, deadline
+               │                  │                  │
+               ▼                  ▼                  ▼
+  Consumed Notes → Mark Consumed  Already Summarised   Plan: "classify" items (summary
+                                   → Mark Done        exists, no suggestion yet) first,
+                                                      then "summarize" items newest
+                                                      first; cap, deadline
                                                      ▼
        ┌──────────────────────────────────────► Loop Videos ──done──► Summary
        │                                             ▼
@@ -54,6 +55,7 @@ per video, keyed by `videoId`. It only reads `videoId`, `title`, `targetName` an
 | `suggestedName` | playlist name, or `none`; empty = not suggested yet |
 | `suggestConfidence` | `high` · `medium` · `low` |
 | `suggestReason` | one sentence from the model |
+| `noteConsumedAt` | date the note was first seen missing from the Obsidian inbox (moved or deleted); set once |
 
 A second table holds the taxonomy that is sent to `/classify`: one row per topic playlist
 with `playlistId`, `name` and `description` (the description is a binding rule; a
@@ -65,12 +67,12 @@ with `Column(s) "…" do not exist` and nothing is called.
 
 The table updates map only their own columns, so they never touch the other workflow's
 columns. The reverse must hold too: a workflow that **upserts** rows must not map these
-six columns, or an empty value there clears them (n8n writes NULL for a mapped empty
+seven columns, or an empty value there clears them (n8n writes NULL for a mapped empty
 value).
 
 ## Import
 
-1. Add the six columns above to the table (n8n UI → *Data tables*) and create the
+1. Add the seven columns above to the table (n8n UI → *Data tables*) and create the
    taxonomy table.
 2. n8n → *Workflows* → *Create* → menu *Import from File* → pick the JSON.
 3. Open the **Config** node and set
@@ -118,6 +120,15 @@ workflow: set a row's `status` to `approved` and the sort job copies `suggestedP
 / `suggestedName` into the target columns and moves the video. To decide differently, set
 `targetPlaylistId`, `targetName`, `action = move`, `status = pending` yourself; the
 suggestion stays, so suggested vs. decided remains comparable.
+
+## Consumed notes
+
+Once per run, **Consumed Notes** compares `GET /summaries` (videos whose note was
+written, `exportedAt`) with `GET /notes` (notes still in the inbox) and sets
+`noteConsumedAt` for videos whose note is gone, i.e. you moved it into another vault
+folder or deleted it. The check only needs the inbox mirror on the home machine; the
+vault itself is never read. It is set once and never cleared. If `/notes` does not answer
+with a clean 200, nothing is marked that run.
 
 ## Node settings that matter
 

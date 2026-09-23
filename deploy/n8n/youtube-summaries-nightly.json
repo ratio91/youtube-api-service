@@ -196,6 +196,11 @@
               "keyName": "suggestedName",
               "condition": "neq",
               "keyValue": "__never__"
+            },
+            {
+              "keyName": "noteConsumedAt",
+              "condition": "neq",
+              "keyValue": "__never__"
             }
           ]
         },
@@ -210,7 +215,7 @@
         200
       ],
       "alwaysOutputData": true,
-      "notes": "All rows (neq also matches unset values); runs once. Fails loudly if summaryStatus or suggestedName is missing.",
+      "notes": "All rows (neq also matches unset values); runs once. Fails loudly if summaryStatus, suggestedName or noteConsumedAt is missing.",
       "notesInFlow": true,
       "executeOnce": true
     },
@@ -293,7 +298,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Two kinds of work, one item each:\n//  - \"classify\": the video already has a summary (summaryStatus done, or a summary in the\n//    service) but no suggestion yet → only POST /classify (cheap, summary is cached).\n//  - \"summarize\": no final summaryStatus, no summary yet → GET /summary, then /classify.\n// Dead videos are skipped. Classify items first (seconds each), then summaries newest\n// first, capped by maxPerRun. The deadline is computed once: today's stopAt, or\n// now + maxRunMinutes for a run started after stopAt (manual daytime runs).\nconst cfg = $('Config').first().json;\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst hasTaxonomy = $('Get Playlists').all().some(i => i.json.playlistId);\nconst [h, m] = String(cfg.stopAt ?? '06:30').split(':').map(Number);\nlet deadline = $now.set({ hour: h, minute: m, second: 0, millisecond: 0 });\nif (deadline <= $now) deadline = $now.plus({ minutes: Number(cfg.maxRunMinutes) || 330 });\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r.videoId && r.targetName !== 'dead')\n  .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));\nconst seen = new Set();\nconst classify = [];\nconst summarize = [];\nfor (const r of rows) {\n  if (seen.has(r.videoId)) continue;\n  seen.add(r.videoId);\n  const base = { videoId: r.videoId, title: r.title ?? '', deadline: deadline.toISO(), deadlineMs: deadline.toMillis() };\n  const summarised = r.summaryStatus === 'done' || known.has(r.videoId);\n  if (summarised) { if (hasTaxonomy && !r.suggestedName) classify.push({ json: { ...base, mode: 'classify' } }); }\n  else if (!r.summaryStatus) summarize.push({ json: { ...base, mode: 'summarize' } });\n}\nreturn [...classify, ...summarize.slice(0, Number(cfg.maxPerRun) || 150)];\n"
+        "jsCode": "// Two kinds of work, one item each:\n//  - \"classify\": the video already has a summary (summaryStatus done, or a summary in the\n//    service) but no suggestion yet → only POST /classify (cheap, summary is cached).\n//  - \"summarize\": no final summaryStatus, no summary yet → GET /summary, then /classify.\n// Dead videos are skipped. Classify items first (seconds each), then summaries (labelled\n// rows first, then newest), capped by maxPerRun. The deadline is computed once: today's stopAt, or\n// now + maxRunMinutes for a run started after stopAt (manual daytime runs).\nconst cfg = $('Config').first().json;\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst hasTaxonomy = $('Get Playlists').all().some(i => i.json.playlistId);\nconst [h, m] = String(cfg.stopAt ?? '06:30').split(':').map(Number);\nlet deadline = $now.set({ hour: h, minute: m, second: 0, millisecond: 0 });\nif (deadline <= $now) deadline = $now.plus({ minutes: Number(cfg.maxRunMinutes) || 330 });\n// Labelled rows (already sorted: targetName set, not dead) first, so the classifier eval\n// gets its test set early; then the newest rows.\nconst labelled = r => r.targetName && r.targetName !== 'dead' ? 1 : 0;\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r.videoId && r.targetName !== 'dead')\n  .sort((a, b) => (labelled(b) - labelled(a)) || String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));\nconst seen = new Set();\nconst classify = [];\nconst summarize = [];\nfor (const r of rows) {\n  if (seen.has(r.videoId)) continue;\n  seen.add(r.videoId);\n  const base = { videoId: r.videoId, title: r.title ?? '', deadline: deadline.toISO(), deadlineMs: deadline.toMillis() };\n  const summarised = r.summaryStatus === 'done' || known.has(r.videoId);\n  if (summarised) { if (hasTaxonomy && !r.suggestedName) classify.push({ json: { ...base, mode: 'classify' } }); }\n  else if (!r.summaryStatus) summarize.push({ json: { ...base, mode: 'summarize' } });\n}\nreturn [...classify, ...summarize.slice(0, Number(cfg.maxPerRun) || 150)];\n"
       },
       "id": "726f24ca-2ca3-5fd5-9161-fe48924266ac",
       "name": "Plan",
@@ -866,6 +871,126 @@
         3420,
         400
       ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 18,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "3f0b9f4e-7c1d-4e8a-9b2f-18000000e001",
+      "name": "Evening 18:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1200,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.baseUrl }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "f6db9bf8-b29f-596a-be04-a0487cf98cb1",
+      "name": "Get Notes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -100,
+        600
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "TUaQfRSfr3pvaJJL",
+          "name": "youtube api service"
+        }
+      },
+      "notes": "Notes still in the Obsidian inbox. Anything but a clean 200 = no consumed marking this run.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// A video is consumed when its note was written (exportedAt in GET /summaries) and it is\n// no longer in the Obsidian inbox (GET /notes): the operator moved or deleted it.\n// Marked once (noteConsumedAt stays set). Guard: without a clean /notes answer nothing\n// is marked — an empty list from a failed call would flag every exported video.\nconst n = $('Get Notes').first().json;\nif (n.error || n.statusCode !== 200 || !Array.isArray(n.body?.notes)) return [];\nconst inInbox = new Set(n.body.notes.map(x => x.videoId));\nconst exported = new Set(($('Known Summaries').first().json.summaries ?? []).filter(s => s.exportedAt).map(s => s.videoId));\nconst today = $now.toISODate();\nconst seen = new Set();\nconst out = [];\nfor (const r of $input.all().map(i => i.json)) {\n  if (!r.videoId || seen.has(r.videoId) || r.noteConsumedAt) continue;\n  seen.add(r.videoId);\n  if (exported.has(r.videoId) && !inInbox.has(r.videoId)) out.push({ json: { videoId: r.videoId, noteConsumedAt: today } });\n}\nreturn out;\n"
+      },
+      "id": "28933a4f-67db-5393-8ed2-a3e59c2cf985",
+      "name": "Consumed Notes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.dataTableId }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "videoId",
+              "condition": "eq",
+              "keyValue": "={{ $json.videoId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "noteConsumedAt": "={{ $json.noteConsumedAt }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "noteConsumedAt",
+              "displayName": "noteConsumedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "39078c57-1f47-5ad6-9499-a7b5cf8faba3",
+      "name": "Mark Consumed",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -200
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -906,7 +1031,7 @@
       "main": [
         [
           {
-            "node": "Get Playlists",
+            "node": "Get Notes",
             "type": "main",
             "index": 0
           }
@@ -923,6 +1048,11 @@
           },
           {
             "node": "Plan",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consumed Notes",
             "type": "main",
             "index": 0
           }
@@ -1192,6 +1322,39 @@
         [
           {
             "node": "Loop Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evening 18:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Notes": {
+      "main": [
+        [
+          {
+            "node": "Get Playlists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consumed Notes": {
+      "main": [
+        [
+          {
+            "node": "Mark Consumed",
             "type": "main",
             "index": 0
           }

@@ -330,7 +330,16 @@ recommendation (temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.5).
 
 #### `GET /summaries`
 
-Lists cached summaries newest first: `{ videoId, title, lang, kind, summaryLang, model, strategy, createdAt }`.
+Lists cached summaries newest first: `{ videoId, title, lang, kind, summaryLang, model, strategy, createdAt, exportedAt? }`
+(`exportedAt` = when the Obsidian note was last written; absent = never exported).
+
+#### `GET /notes`
+
+Lists the notes currently in `OBSIDIAN_EXPORT_DIR` (the Syncthing mirror of the vault's
+inbox folder) by their frontmatter `video_id`: `{ count, notes: [{ videoId, fileName, modifiedAt }] }`.
+A video whose summary has `exportedAt` but is missing here was moved out of the inbox
+(or deleted), i.e. consumed. Only the inbox folder is read, never the rest of the vault.
+`503 { code: "NOTES_DISABLED" }` when the export is off.
 
 #### Summary storage
 
