@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { LlmError } from './errors';
 import { log, errorMessage } from '../log';
 
@@ -13,6 +14,15 @@ import { log, errorMessage } from '../log';
  *   `{"error":{"type":"exceed_context_size_error","message":"request (N tokens) exceeds the
  *   available context size (M tokens), try increasing it","n_prompt_tokens":N,"n_ctx":M}}`
  * - `/props` (llama-server only) exposes `default_generation_settings.n_ctx`.
+ * - `jsonSchema` → `response_format.json_schema.schema`, a hard grammar constraint; the
+ *   README's `{type, schema}` shape is silently ignored, and `maxLength` ≥ 2000 drops the
+ *   whole grammar (docs/verified/2026-09-23-llama-server-json-schema.md).
+ * - llama-server sends headers only when a non-streaming answer is complete. Node's
+ *   built-in fetch (undici) gives up after 300 s without headers (`headersTimeout`,
+ *   default 300e3, undici 7.29.1 lib/dispatcher/client.js L262), long before
+ *   LLM_TIMEOUT_MS. The default fetch here therefore uses its own undici Agent with header
+ *   and body timeouts disabled (`0`, client-h1.js L259); the AbortSignal is the only deadline
+ *   (docs/decisions.md 2026-09-23 "5-minute fetch limit").
  */
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -28,6 +38,8 @@ export interface ChatOptions {
   /** default false: summaries do not need chain-of-thought */
   enableThinking?: boolean;
   timeoutMs?: number;
+  /** constrain the answer to this JSON schema (llama-server grammar) */
+  jsonSchema?: Record<string, unknown>;
 }
 
 export interface ChatResult {
@@ -81,13 +93,20 @@ const chatResponseSchema = z
 
 const errorBodySchema = z.object({ error: z.object({ message: z.string().optional(), type: z.string().optional(), n_prompt_tokens: z.number().optional(), n_ctx: z.number().optional() }).passthrough() }).passthrough();
 
+/** fetch over a dedicated undici Agent; 0 = no header/body timeout (default for the LLM). */
+export function createLlmFetch(timeouts: { headersTimeout: number; bodyTimeout: number } = { headersTimeout: 0, bodyTimeout: 0 }): typeof fetch {
+  const agent = new Agent(timeouts);
+  return ((url: string | URL, init?: RequestInit) => undiciFetch(url, { ...(init as object), dispatcher: agent })) as unknown as typeof fetch;
+}
+const llmFetch = createLlmFetch();
+
 export class LlmClient {
   private readonly opts: LlmClientOptions;
   private readonly fetchImpl: typeof fetch;
 
   constructor(opts: LlmClientOptions) {
     this.opts = { ...opts, baseUrl: opts.baseUrl.replace(/\/+$/, '') };
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? llmFetch;
   }
 
   get baseUrl(): string {
@@ -111,6 +130,7 @@ export class LlmClient {
       top_k: o.topK ?? DEFAULT_SAMPLING.topK,
       presence_penalty: o.presencePenalty ?? DEFAULT_SAMPLING.presencePenalty,
       chat_template_kwargs: { enable_thinking: o.enableThinking ?? false },
+      ...(o.jsonSchema ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', strict: true, schema: o.jsonSchema } } } : {}),
     };
     const timeoutMs = o.timeoutMs ?? this.opts.timeoutMs;
     const started = performance.now();
@@ -201,7 +221,8 @@ export class LlmClient {
 
 function classifyFetchError(err: unknown, timeoutMs: number): LlmError {
   const name = (err as { name?: string })?.name;
-  if (name === 'TimeoutError' || name === 'AbortError') {
+  const code = (err as { cause?: { code?: string } })?.cause?.code;
+  if (name === 'TimeoutError' || name === 'AbortError' || code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT') {
     return new LlmError('LLM_TIMEOUT', `LLM did not answer within ${timeoutMs} ms`, { cause: err });
   }
   return new LlmError('LLM_UNAVAILABLE', `cannot reach LLM: ${errorMessage((err as { cause?: unknown })?.cause ?? err)}`, { cause: err });

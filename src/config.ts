@@ -62,6 +62,9 @@ const envSchema = z
       z.array(z.string().regex(/^[a-z]{2,3}$/, 'must be comma-separated language codes like "en,de"'))
     ),
 
+    // Playlist suggestions (POST /classify/:videoId), one JSON file per video
+    CLASSIFY_CACHE_DIR: z.string().default('/data/classifications'),
+
     // Obsidian note export (one Markdown file per summary); unset = disabled
     OBSIDIAN_EXPORT_DIR: optionalString,
     // comma-separated tags written into the note's frontmatter

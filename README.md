@@ -67,6 +67,7 @@ Copy `.env.example` to `.env` and fill it in. Empty values count as unset.
 | `LLM_MAX_OUTPUT_TOKENS` | no | `2000` | Output budget of the final summary (a cut-off answer is retried once with 1.6×, which re-sends the whole prompt) |
 | `SUMMARY_CHARS_PER_TOKEN` | no | `3.5` | Conservative estimate used to decide single-shot vs. chunked |
 | `SUMMARY_CACHE_DIR` | no | `/data/summaries` | Where summaries are stored |
+| `CLASSIFY_CACHE_DIR` | no | `/data/classifications` | Where playlist suggestions are cached |
 | `SUMMARY_LANGUAGES` | no | unset (compose: `en,de`) | Languages a summary may be written in; a transcript in any other language is summarised in the first one. Unset = the transcript language |
 | `OBSIDIAN_EXPORT_DIR` | no | – (compose: `/data/obsidian-inbox`) | Directory for Obsidian notes; unset disables the export |
 | `OBSIDIAN_TAGS` | no | `video,youtube` | Tags written into each note's frontmatter |
@@ -412,6 +413,56 @@ ls data/benchmarks/                                                     # <times
 
 The tool prints one row per video (strategy, chunks, tokens, wall time) and writes each
 summary as Markdown with a metadata comment, so candidates can be read side by side.
+
+### Playlist suggestions
+
+#### `POST /classify/:videoId`
+
+Suggests exactly one of the playlists you send, or none, for a video that already has a
+summary. The service only suggests: it never moves videos and keeps no playlist list of
+its own. The caller sends the taxonomy on every request.
+
+```json
+{ "playlists": [ { "playlistId": "PL…", "name": "Finance & Markets",
+                   "description": "Investing, markets, … Not: crypto (-> Crypto)." } ],
+  "refresh": false }
+```
+
+```json
+{ "videoId": "…", "title": "…", "playlistId": "PL…", "name": "Finance & Markets",
+  "confidence": "high", "runnerUp": "none", "reason": "Main topic is sovereign bond markets.",
+  "model": "…", "promptVersion": 1, "taxonomyHash": "3f2a…", "cached": false, "durationMs": 2100 }
+```
+
+- The LLM sees title, channel and the cached summary's TL;DR and key points, never the
+  transcript. Descriptions are binding rules: a `Not: … (-> other playlist)` part
+  redirects a topic when two playlists fit. Weak matches, music, entertainment and vlogs
+  get `"playlistId": null` (none).
+- The answer is constrained by a JSON schema whose choices are exactly the given playlist
+  names plus `none`. An answer that is still invalid after one retry comes back as none
+  with `reason: "invalid model output"` and is not cached. `confidence` is categorical
+  (`high` / `medium` / `low`) because LLM probabilities are not calibrated.
+- Errors: `409 { code: "NO_SUMMARY" }` (call `/summary` first), `400` for an invalid
+  playlist list (duplicate ids or names, `none` as a name), `503` LLM unavailable or slow
+  (retry later), `500` unexpected failure.
+- Cache: `CLASSIFY_CACHE_DIR/<videoId>.json`, reused while the taxonomy (hash of ids,
+  names and descriptions), prompt version, model and summary are unchanged. Editing a
+  description re-classifies automatically; `refresh: true` forces it.
+
+#### Evaluating the classifier
+
+Measure accuracy on videos you have already sorted before trusting the suggestions:
+
+```bash
+cp playlists.json labels.json data/eval/     # formats: deploy/n8n/*.example.json
+docker compose exec youtube-api node dist/tools/classify-eval.js \
+  --playlists /data/eval/playlists.json --labels /data/eval/labels.json [--refresh] [--limit N]
+```
+
+It prints overall and per-confidence accuracy, top-2 accuracy (pick or runner-up), the
+none rate, precision and recall per playlist, and the most frequent confusions with
+titles, then writes every row as CSV to `data/eval/`. Labels marked `needsReview` are
+classified but listed separately, never scored. Videos without a summary are skipped.
 
 ### Transcript cache
 

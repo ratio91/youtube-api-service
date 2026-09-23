@@ -5,6 +5,7 @@ import { isLlmError } from '../llm/errors';
 import { Summarizer } from './summarizer';
 import { SummaryRecord, SummaryListEntry, SummaryStore } from './store';
 import { ObsidianExporter } from '../notes/obsidian';
+import { LlmQueue } from '../llm/queue';
 import { log, errorMessage } from '../log';
 
 export interface SummaryOptions {
@@ -40,8 +41,7 @@ export interface SummaryResult {
 }
 
 export class SummaryService {
-  // llama-server runs one slot; never let two summaries compete for it.
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly queue: LlmQueue;
 
   constructor(
     private readonly deps: {
@@ -51,9 +51,13 @@ export class SummaryService {
       exporter?: ObsidianExporter;
       /** allowed default summary languages (SUMMARY_LANGUAGES); empty = transcript language */
       summaryLanguages?: string[];
+      /** shared with other LLM users (classification); one slot on llama-server */
+      queue?: LlmQueue;
       now?: () => number;
     }
-  ) {}
+  ) {
+    this.queue = deps.queue ?? new LlmQueue();
+  }
 
   private defaultSummaryLang(transcriptLang: string): string {
     const allowed = this.deps.summaryLanguages ?? [];
@@ -62,9 +66,7 @@ export class SummaryService {
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(task, task);
-    this.queue = next.catch(() => undefined);
-    return next;
+    return this.queue.run(task);
   }
 
   async getSummary(videoId: string, opts: SummaryOptions = {}): Promise<SummaryResult> {

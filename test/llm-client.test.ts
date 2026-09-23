@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { LlmClient, DEFAULT_SAMPLING } from '../src/llm/client';
+import * as http from 'http';
+import type { AddressInfo } from 'net';
+import { LlmClient, DEFAULT_SAMPLING, createLlmFetch } from '../src/llm/client';
 import { LlmError } from '../src/llm/errors';
 
 function fakeFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response> | never) {
@@ -38,6 +40,17 @@ describe('LlmClient.chat', () => {
     expect(body).toMatchObject({ model: 'default', stream: false, max_tokens: 600, ...{ temperature: DEFAULT_SAMPLING.temperature, top_p: DEFAULT_SAMPLING.topP, top_k: DEFAULT_SAMPLING.topK, presence_penalty: DEFAULT_SAMPLING.presencePenalty }, chat_template_kwargs: { enable_thinking: false } });
     expect(r).toMatchObject({ content: '## TL;DR\nHallo.', finishReason: 'stop', model: 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf', usage: { promptTokens: 15056, completionTokens: 600 }, timings: { promptPerSecond: 249.3, predictedPerSecond: 20.3 } });
     expect(r.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('sends a JSON schema as response_format.json_schema.schema (docs/verified/2026-09-23-llama-server-json-schema.md), nothing otherwise', async () => {
+    const f = fakeFetch(() => json(OK_BODY));
+    const schema = { type: 'object', properties: { a: { type: 'string', enum: ['x', 'none'] } }, required: ['a'], additionalProperties: false };
+    await client(f).chat([{ role: 'user', content: 'x' }], { maxTokens: 10, jsonSchema: schema });
+    await client(f).chat([{ role: 'user', content: 'x' }], { maxTokens: 10 });
+    const bodies = (f as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => JSON.parse(String((c[1] as RequestInit).body)));
+    expect(bodies[0].response_format).toEqual({ type: 'json_schema', json_schema: { name: 'answer', strict: true, schema } });
+    expect(bodies[0].json_schema).toBeUndefined();
+    expect(bodies[1].response_format).toBeUndefined();
   });
 
   it('sends a bearer token when an api key is configured', async () => {
@@ -87,5 +100,40 @@ describe('LlmClient.probe', () => {
     const p = await client(down).probe();
     expect(p.ok).toBe(false);
     expect(p.error).toContain('ECONNREFUSED');
+  });
+});
+
+describe('LlmClient transport (real HTTP server, headers held back like llama-server)', () => {
+  // llama-server sends headers only when the whole answer is done; undici's default
+  // headersTimeout (300 s) used to cut every summary longer than 5 minutes.
+  async function slowServer(delayMs: number) {
+    const server = http.createServer((_req, res) => {
+      setTimeout(() => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(OK_BODY)), delayMs);
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    return { base: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, close: () => new Promise((r) => server.close(r)) };
+  }
+
+  // undici runs timeouts on a coarse timer (~0.5–1 s), hence seconds here.
+  it('a finite headersTimeout cuts a slow answer (the old failure), the LLM fetch does not', async () => {
+    const s = await slowServer(3000);
+    try {
+      const strict = new LlmClient({ baseUrl: s.base, model: 'm', timeoutMs: 5000, fetchImpl: createLlmFetch({ headersTimeout: 1000, bodyTimeout: 1000 }) });
+      await expectCode(strict.chat([{ role: 'user', content: 'x' }], { maxTokens: 5 }), 'LLM_TIMEOUT');
+      const llm = new LlmClient({ baseUrl: s.base, model: 'm', timeoutMs: 5000, fetchImpl: createLlmFetch() });
+      expect((await llm.chat([{ role: 'user', content: 'x' }], { maxTokens: 5 })).content).toBe('## TL;DR\nHallo.');
+    } finally {
+      await s.close();
+    }
+  }, 15_000);
+
+  it('the default client uses the no-timeout agent and LLM_TIMEOUT_MS stays the only deadline', async () => {
+    const s = await slowServer(400);
+    try {
+      expect((await new LlmClient({ baseUrl: s.base, model: 'm', timeoutMs: 5000 }).chat([{ role: 'user', content: 'x' }], { maxTokens: 5 })).finishReason).toBe('stop');
+      await expectCode(new LlmClient({ baseUrl: s.base, model: 'm', timeoutMs: 150 }).chat([{ role: 'user', content: 'x' }], { maxTokens: 5 }), 'LLM_TIMEOUT');
+    } finally {
+      await s.close();
+    }
   });
 });

@@ -34,3 +34,7 @@ pids/
 # OAuth tokens (sensitive!)
 tokens.json
 *.tokens.json
+
+# Personal playlist taxonomy and labels (real playlist IDs); see *.example.json
+deploy/n8n/playlists.json
+deploy/n8n/labels.json

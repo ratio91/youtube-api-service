@@ -1,0 +1,12 @@
+[
+  {
+    "playlistId": "PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx1",
+    "name": "Finance & Markets",
+    "description": "Investing, trading, markets, macro outlooks, personal finance and taxes. Not: crypto (-> Crypto), building companies (-> Entrepreneurship)."
+  },
+  {
+    "playlistId": "PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx2",
+    "name": "Crypto",
+    "description": "Bitcoin, cryptocurrencies and decentralized systems. Not: general investing (-> Finance & Markets)."
+  }
+]

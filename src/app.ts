@@ -6,6 +6,9 @@ import { config } from './config';
 import { HealthReport } from './health';
 import { TranscriptService, TranscriptFormat } from './transcripts/service';
 import { SummaryService, summaryErrorResponse } from './summaries/service';
+import { ClassifyService, isNoSummaryError } from './classify/service';
+import { NONE } from './classify/prompts';
+import { isLlmError } from './llm/errors';
 import { toTranscriptError } from './transcripts/service';
 import { VIDEO_ID_RE } from './transcripts/ytdlp';
 import { log, errorMessage } from './log';
@@ -16,6 +19,8 @@ export interface AppDeps {
   transcripts: TranscriptService;
   /** null → summary routes answer 503 */
   summaries: SummaryService | null;
+  /** null → /classify answers 503 */
+  classify?: ClassifyService | null;
   health: () => Promise<HealthReport>;
   batchMax?: number;
 }
@@ -38,6 +43,35 @@ const batchBodySchema = z.object({
   format: formatParam,
   refresh: z.boolean().optional().default(false),
 });
+
+const playlistSchema = z.object({
+  playlistId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'playlistId must be a YouTube playlist id'),
+  name: z.string().trim().min(1).max(100).regex(/^[^\n]*$/, 'name must be one line'),
+  description: z.string().max(1000).optional().default(''),
+});
+const classifyBodySchema = z.object({
+  playlists: z
+    .array(playlistSchema)
+    .min(1)
+    .max(100)
+    .superRefine((list, ctx) => {
+      const ids = new Set<string>();
+      const names = new Set<string>();
+      for (const p of list) {
+        if (ids.has(p.playlistId)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate playlistId "${p.playlistId}"` });
+        if (names.has(p.name)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `duplicate name "${p.name}"` });
+        if (p.name.toLowerCase() === NONE) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"${NONE}" is reserved and cannot be a playlist name` });
+        ids.add(p.playlistId);
+        names.add(p.name);
+      }
+    }),
+  refresh: z.boolean().optional().default(false),
+});
+
+function classifyErrorResponse(err: unknown): { status: number; body: Record<string, unknown> } {
+  if (isNoSummaryError(err) || isLlmError(err)) return { status: err.httpStatus, body: err.toJSON() };
+  return { status: 500, body: { code: 'CLASSIFY_FAILED', error: errorMessage(err), reason: errorMessage(err), retryable: false, status: 500 } };
+}
 
 function firstIssue(err: z.ZodError): string {
   const i = err.issues[0];
@@ -239,6 +273,30 @@ export function createApp(deps: AppDeps) {
       const { status, body } = summaryErrorResponse(error);
       if (status >= 500) log('error', 'route.summary_failed', { videoId, ...body });
       res.status(status).json({ videoId, ...body });
+    }
+  });
+
+  // Suggest one of the given playlists for a video, from its cached summary. Suggests only:
+  // the caller (n8n) decides what happens with the answer.
+  app.post('/classify/:videoId', basicAuth, async (req: Request, res: Response) => {
+    const { videoId } = req.params;
+    if (!VIDEO_ID_RE.test(videoId)) {
+      return res.status(400).json({ error: 'invalid YouTube video id' });
+    }
+    const body = classifyBodySchema.safeParse(req.body);
+    if (!body.success) {
+      return res.status(400).json({ error: firstIssue(body.error) });
+    }
+    if (!deps.classify) {
+      return res.status(503).json({ error: 'classification disabled', code: 'CLASSIFY_DISABLED', retryable: false, status: 503 });
+    }
+    try {
+      const result = await deps.classify.classify(videoId, body.data.playlists, { refresh: body.data.refresh });
+      res.json({ ...result, timestamp: new Date().toISOString() });
+    } catch (error) {
+      const { status, body: errBody } = classifyErrorResponse(error);
+      if (status >= 500) log('error', 'route.classify_failed', { videoId, ...errBody });
+      res.status(status).json({ videoId, ...errBody });
     }
   });
 

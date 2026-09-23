@@ -361,3 +361,40 @@ explicit `?summaryLang=` wins. Nightly workflow stays inactive until this is dep
   summary uses the `en` auto track (74.8 s, single) and overwrote the existing note in
   place (`language: en`). Live probe of the three field-test videos: one `-orig` key
   each, no `variant` anywhere, `language` set (docs/verified/2026-09-23-ytdlp-auto-dub.md).
+
+## 2026-09-23 — Field finding: backlog run exposes a 5-minute fetch limit and llama-server OOM kills
+
+During the first backlog run (from ~09:35 UTC) 24 `/summary` calls failed with 503:
+- **`Headers Timeout Error` after exactly 5 min** (09:42, 10:13, 10:18, 10:28): Node's
+  built-in fetch (undici 7.29.1 in the image) has a default `headersTimeout` of 300 s,
+  which fires before our `LLM_TIMEOUT_MS` (600 s) abort signal. llama-server answers a
+  non-streaming request only when done, so every summary longer than 5 min fails and is
+  reported as `LLM_UNAVAILABLE`.
+- **llama-server OOM-killed twice** (09:44, 10:28 UTC; `NRestarts=2`, memory peak
+  18.9/21.2 GB + 5.5 GB swap on a 30 GB host whose iGPU shares system RAM). Each kill
+  came right after a cancelled request (the aborted fetch) whose prompt state (~550 MB)
+  was saved into llama-server's RAM prompt cache (default `--cache-ram` 8192 MiB, dozens
+  of cached prompts of 280–630 MB each). The following requests hit `ECONNREFUSED` /
+  `503 Loading model` for ~30 s.
+- All affected videos are retried next night (status stays empty). One `VIDEO_UNAVAILABLE`
+  (500) was marked failed correctly.
+- **Fix (service):** the LLM client uses its own undici 7.29.1 Agent with header/body
+  timeouts disabled; `LLM_TIMEOUT_MS` is the only deadline, and an undici header/body
+  timeout now maps to `LLM_TIMEOUT` (docs/verified/2026-09-23-undici-timeouts.md).
+- **Fix (host, operator):** `--cache-ram 2048` for llama-server (prompt cache 8 GiB → 2 GiB).
+
+## 2026-09-23 — Playlist classification (`POST /classify/:videoId`), service side
+
+Operator spec: suggest one playlist or none from title, channel and the cached summary's
+TL;DR + key points; taxonomy sent by n8n per request; categorical confidence; cache keyed
+by taxonomy hash + prompt version + model (+ the summary it was made from).
+Decisions: invalid model output after one retry → 200 "none" with reason
+`invalid model output`, not cached (500 only for unexpected failures). The model chooses
+among playlist **names** (meaningful tokens) instead of opaque IDs; the response still
+carries `playlistId`. Temperature 0.2, no presence penalty. Summaries and classifications
+share one LLM queue. Constrained output via `response_format.json_schema.schema`
+(docs/verified/2026-09-23-llama-server-json-schema.md; field probe: enum enforced,
+truncation = `finish_reason: length`). The real taxonomy and labels (299 labelled videos,
+37 `needsReview`) stay out of git; the eval tool reports `needsReview` rows separately.
+**Next gate:** eval on the labelled videos once the backlog has their summaries; nothing
+writes to yt_inbox before the operator has seen the numbers.

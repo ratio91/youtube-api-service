@@ -9,6 +9,10 @@ import { LlmClient } from './llm/client';
 import { Summarizer } from './summaries/summarizer';
 import { SummaryStore } from './summaries/store';
 import { SummaryService } from './summaries/service';
+import { LlmQueue } from './llm/queue';
+import { Classifier } from './classify/classifier';
+import { ClassificationStore } from './classify/store';
+import { ClassifyService } from './classify/service';
 import { ObsidianExporter } from './notes/obsidian';
 import { log } from './log';
 
@@ -67,7 +71,18 @@ const summarizer = new Summarizer({
 const exporter = config.OBSIDIAN_EXPORT_DIR
   ? new ObsidianExporter({ dir: config.OBSIDIAN_EXPORT_DIR, tags: config.OBSIDIAN_TAGS.split(',').map((t) => t.trim()).filter(Boolean) })
   : undefined;
-const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore, exporter, summaryLanguages: config.SUMMARY_LANGUAGES });
+// One llama-server slot: summaries and classifications share one queue.
+const llmQueue = new LlmQueue();
+const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore, exporter, summaryLanguages: config.SUMMARY_LANGUAGES, queue: llmQueue });
+const classificationStore = new ClassificationStore({ dir: config.CLASSIFY_CACHE_DIR });
+const classify = new ClassifyService({
+  summaries: summaryStore,
+  classifier: new Classifier({ client: llm }),
+  store: classificationStore,
+  queue: llmQueue,
+  preferredLangs: config.SUMMARY_LANGUAGES,
+  currentModel: () => lastLlmProbe?.model ?? null,
+});
 
 const health = createHealthProvider({
   youtube,
@@ -79,12 +94,13 @@ const health = createHealthProvider({
   oauthCacheMs: config.HEALTH_OAUTH_CACHE_MS,
 });
 
-const app = createApp({ youtube, transcripts, summaries, health });
+const app = createApp({ youtube, transcripts, summaries, classify, health });
 
 async function main() {
   const t = await probeTranscripts(); // populates lastProbe before the first fetch is cached
   await cache.init();
   await summaryStore.init();
+  await classificationStore.init();
   if (exporter) await exporter.init();
   const l = await probeLlm();
   app.listen(config.PORT, () => {
@@ -102,6 +118,8 @@ async function main() {
       llm: { baseUrl: l.baseUrl, ok: l.ok, model: l.model, contextTokens: config.LLM_CONTEXT_TOKENS ?? l.contextTokens ?? DEFAULT_CONTEXT_TOKENS, ...(l.error ? { error: l.error } : {}) },
       summaryDir: config.SUMMARY_CACHE_DIR,
       summaryWritable: summaryStore.isWritable(),
+      classifyDir: config.CLASSIFY_CACHE_DIR,
+      classifyWritable: classificationStore.isWritable(),
       notes: exporter ? { dir: exporter.dir, writable: exporter.isWritable() } : 'disabled',
     });
     if (youtube && !youtube.isAuthorized()) {

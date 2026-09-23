@@ -76,6 +76,27 @@ export class SummaryStore {
     return readJsonValidated(this.dir, `${videoId}.${summaryLang}.json`, summaryRecordSchema);
   }
 
+  /** Newest summary of a video, preferring the given summary languages (any if none match). */
+  async latest(videoId: string, preferredLangs: string[] = []): Promise<SummaryRecord | null> {
+    if (!VIDEO_ID_RE.test(videoId)) return null;
+    let names: string[] = [];
+    try {
+      names = await fsp.readdir(this.dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') log('warn', 'summaries.readdir_failed', { dir: this.dir, error: errorMessage(err) });
+      return null;
+    }
+    const recs: SummaryRecord[] = [];
+    for (const name of names) {
+      const m = FILE_RE.exec(name);
+      if (!m || m[1] !== videoId) continue;
+      const rec = await readJsonValidated(this.dir, name, summaryRecordSchema);
+      if (rec) recs.push(rec);
+    }
+    recs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return recs.find((r) => preferredLangs.includes(r.summaryLang)) ?? recs[0] ?? null;
+  }
+
   async put(record: SummaryRecord): Promise<boolean> {
     const parsed = summaryRecordSchema.safeParse(record);
     if (!parsed.success) {
