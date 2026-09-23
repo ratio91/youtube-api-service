@@ -303,3 +303,56 @@ yt-dlp info JSON through the transcript cache into summaries and notes.
   accept the device and the folder (operator, in its UI) and add the ignore lines for the
   nested folder markers to the vault folder.
 - Open: GUI password on the side-car not set yet (Tailscale-only exposure).
+
+## 2026-09-23 — Summaries from the n8n Data Table, not the inbox playlist
+
+**Field finding:** the bundled `deploy/n8n` workflow reads only the inbox playlist, but the
+daily sort job removes sorted videos from it — 261 were already gone and would never be
+summarised. The operator keeps every video (inbox, sorted, dead) in an n8n Data Table
+`yt_inbox` (key `videoId`; the sort job owns `title, channel, action, targetPlaylistId,
+targetName, status, note`), which only n8n workflows can read.
+
+**Operator decisions:**
+1. New nightly workflow, source = `yt_inbox`. Dedup against `GET /summaries`, then
+   `GET /summary/:id` one video at a time (15 min timeout); the service writes the note.
+2. State lives in two operator-added columns, never in the sort job's `status`/`note`:
+   `summaryStatus` ∈ `done | no_captions | failed`, `summaryNote` (error text).
+   200 → `done`; 404 → `no_captions`, skipped for good (the service forgets NO_CAPTIONS
+   after `NO_CAPTIONS_TTL_DAYS`, the table does not); 500 → `failed`, skipped until cleared
+   by hand; 503 or a failed request → status stays empty, retried next night. Clearing
+   `summaryStatus` re-queues a video.
+3. The 08:00 inbox workflow is retired from the repo (it was never imported on the n8n
+   instance, so this is a repo/docs change only).
+4. Runs are bounded by time, not count: start 01:00, no new video after 06:30 (one video
+   takes at most ~15 min), `maxPerRun` 150 as a safety net only. Backlog ~600–650 rows →
+   roughly 5–7 nights (no-caption 404s return in seconds).
+
+**Gate (operator):** confirm with a test row that the sort job's upsert leaves
+`summaryStatus`/`summaryNote` untouched before relying on them.
+
+**Gate passed (operator, 2026-09-23):** columns `summaryStatus`/`summaryNote` added to the
+table; an upsert test row written by the sort job's path kept its `summaryStatus`. Next:
+import the workflow and do a manual run with `maxPerRun = 3`.
+- Manual test run (`maxPerRun = 3`, 2026-09-23 08:39–08:44 UTC): service log shows three
+  fresh summaries, all `single` strategy, 75 s / 138 s / 79 s (5.9k / 14.9k / 5.7k prompt
+  tokens), three new notes in the vault inbox. Test row and helper workflow removed.
+  One video's transcript was Ukrainian (`uk` auto) → note in Ukrainian, since
+  `summaryLang` defaults to the transcript language.
+
+## 2026-09-23 — Field finding: AI auto-dubbed videos broke track selection; notes only in en/de
+
+**Finding:** `U6KChi90nHs` (English talk) came back as a Ukrainian transcript and note.
+YouTube has AI-dubbed it into 14 languages; each dub gets its own ASR caption track, and
+yt-dlp labels every one `<lang>-orig` (15 "originals"). `listTracks` kept the *last*
+`-orig` key (`uk-orig`) and then served the ASR of the Ukrainian dub (fluent MT-quality
+text). Raw info JSON: top-level `language: en-US`, English audio "original (default)",
+the `en-orig` URL without `variant`, all 14 dub tracks with `variant=timing-optimized`.
+Only this video was affected in the cache (all other cached tracks en/de).
+
+**Fix:** original language = top-level `language` when it names an `-orig` track, else
+the `-orig` track without `variant`; auto tracks with a `variant` are never served
+(fixture `test/fixtures/info/U6KChi90nHs.json`, scrubbed).
+**Operator decision:** notes only in German or English → `SUMMARY_LANGUAGES` (compose
+default `en,de`): an en/de transcript keeps its language, any other is summarised in
+English by the LLM from the original transcript. Unset keeps the old behaviour; an
+explicit `?summaryLang=` wins. Nightly workflow stays inactive until this is deployed.

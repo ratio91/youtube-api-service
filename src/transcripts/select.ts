@@ -10,6 +10,10 @@ import { TranscriptError } from './errors';
  *   `tlang=`; `skip=translated_subs` does not remove them. We never serve those.
  * - Top-level `language` may carry a region ("de-DE"); match on the primary subtag.
  * - `http_headers` live per format, not top-level.
+ * - AI auto-dubbed videos (field finding 2026-09-23, docs/decisions.md) carry one ASR
+ *   track per dub language, and yt-dlp labels every one of them `<lang>-orig`. The dub
+ *   tracks' URLs carry `variant=timing-optimized`; the real original has no `variant`
+ *   and matches the top-level `language` (docs/verified/2026-09-23-ytdlp-auto-dub.md).
  */
 const trackEntrySchema = z.object({ ext: z.string(), url: z.string().url(), name: z.string().optional() }).passthrough();
 const trackDictSchema = z.record(z.array(trackEntrySchema)).default({});
@@ -53,36 +57,58 @@ export function primarySubtag(lang: string): string {
   return lang.trim().toLowerCase().split(/[-_]/)[0] ?? '';
 }
 
-function isTranslation(url: string): boolean {
+function param(url: string, name: string): string | null {
   try {
-    return new URL(url).searchParams.has('tlang');
+    return new URL(url).searchParams.get(name);
   } catch {
-    return false;
+    return null;
   }
 }
 
-function pickFormat(entries: { ext: string; url: string; name?: string }[]) {
-  return entries.find((e) => e.ext === CAPTION_FORMAT && !isTranslation(e.url));
+function isTranslation(url: string): boolean {
+  return param(url, 'tlang') !== null;
+}
+
+/** ASR of an AI-generated dub audio track, not of the speaker. */
+function isDubTrack(url: string): boolean {
+  return param(url, 'variant') !== null;
+}
+
+function json3Entries(entries: { ext: string; url: string; name?: string }[]) {
+  return entries.filter((e) => e.ext === CAPTION_FORMAT && !isTranslation(e.url));
+}
+
+/**
+ * Original language: the top-level `language` when it names one of the `-orig` tracks,
+ * else the `-orig` track without a dub `variant`, else `language`, else the first
+ * `-orig` key. Never "the last `-orig` key seen" — dubbed videos have one per dub.
+ */
+function originalLanguage(info: CaptionInfo): string | undefined {
+  const origs = Object.entries(info.automatic_captions)
+    .filter(([key]) => key.endsWith('-orig'))
+    .map(([key, entries]) => ({ lang: primarySubtag(key.slice(0, -'-orig'.length)), dub: json3Entries(entries).some((e) => isDubTrack(e.url)) }));
+  const declared = info.language ? primarySubtag(info.language) : undefined;
+  if (declared && origs.some((o) => o.lang === declared)) return declared;
+  return origs.find((o) => !o.dub)?.lang ?? declared ?? origs[0]?.lang;
 }
 
 export function listTracks(info: CaptionInfo): AvailableTracks {
   const manual = new Map<string, SelectedTrack>();
   const auto = new Map<string, SelectedTrack>();
-  let origLang: string | undefined;
+  const origLang = originalLanguage(info);
 
   for (const [lang, entries] of Object.entries(info.subtitles)) {
-    const e = pickFormat(entries);
+    const e = json3Entries(entries)[0];
     if (e) manual.set(lang, { lang, kind: 'manual', url: e.url, name: e.name });
   }
   for (const [key, entries] of Object.entries(info.automatic_captions)) {
-    if (key.endsWith('-orig')) {
-      origLang = primarySubtag(key.slice(0, -'-orig'.length));
-      continue;
-    }
-    const e = pickFormat(entries);
+    if (key.endsWith('-orig')) continue;
+    const candidates = json3Entries(entries);
+    // Dub ASR is only acceptable as the original-language track (never seen, but a
+    // missing original must not silently drop the video's own language).
+    const e = candidates.find((c) => !isDubTrack(c.url)) ?? (primarySubtag(key) === origLang ? candidates[0] : undefined);
     if (e) auto.set(key, { lang: key, kind: 'auto', url: e.url, name: e.name });
   }
-  if (!origLang && info.language) origLang = primarySubtag(info.language);
   return { manual, auto, origLang };
 }
 

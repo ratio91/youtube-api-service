@@ -16,7 +16,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const ENTRIES = [{ text: 'hallo welt', offset: 0, duration: 1000, lang: 'de' }, { text: 'zweiter satz', offset: 1000, duration: 1000, lang: 'de' }];
 
-function make(over: { transcripts?: Partial<TranscriptService>; summarize?: () => Promise<unknown>; exporter?: ObsidianExporter } = {}) {
+function make(over: { transcripts?: Partial<TranscriptService>; summarize?: () => Promise<unknown>; exporter?: ObsidianExporter; summaryLanguages?: string[] } = {}) {
   const transcripts = {
     getEntries: vi.fn(async (videoId: string) => ({ videoId, title: 'Vortrag', channel: 'Uni', durationSec: 600, lang: 'de', kind: 'auto', entries: ENTRIES, cached: true, fetchedAt: 'f' })),
     ...over.transcripts,
@@ -25,7 +25,7 @@ function make(over: { transcripts?: Partial<TranscriptService>; summarize?: () =
   const summarizer = { summarize } as unknown as Summarizer;
   const store = new SummaryStore({ dir });
   let clock = 1_700_000_000_000;
-  const service = new SummaryService({ transcripts, summarizer, store, exporter: over.exporter, now: () => (clock += 1000) });
+  const service = new SummaryService({ transcripts, summarizer, store, exporter: over.exporter, summaryLanguages: over.summaryLanguages, now: () => (clock += 1000) });
   return { service, transcripts, summarize, store };
 }
 
@@ -52,6 +52,18 @@ describe('SummaryService', () => {
     const again = await service.getSummary('fW4SwcMQYdA', { refresh: true });
     expect(again.cached).toBe(false);
     expect(summarize).toHaveBeenCalledTimes(3);
+  });
+
+  it('SUMMARY_LANGUAGES: keeps an allowed transcript language, maps any other to the first entry', async () => {
+    const withLang = (lang: string) => ({ getEntries: vi.fn(async (videoId: string) => ({ videoId, lang, kind: 'auto', entries: ENTRIES, cached: true, fetchedAt: 'f' })) });
+    const de = make({ summaryLanguages: ['en', 'de'], transcripts: withLang('de-DE') });
+    expect((await de.service.getSummary('fW4SwcMQYdA')).summaryLang).toBe('de');
+    const fr = make({ summaryLanguages: ['en', 'de'], transcripts: withLang('fr') });
+    const r = await fr.service.getSummary('xxxxxxxxxxx');
+    expect(r).toMatchObject({ lang: 'fr', summaryLang: 'en' });
+    expect(fr.summarize).toHaveBeenCalledWith(expect.objectContaining({ lang: 'fr', summaryLang: 'en' }));
+    const explicit = make({ summaryLanguages: ['en', 'de'], transcripts: withLang('fr') });
+    expect((await explicit.service.getSummary('yyyyyyyyyyy', { summaryLang: 'fr' })).summaryLang).toBe('fr');
   });
 
   it('passes ?lang= through to the transcript lookup', async () => {

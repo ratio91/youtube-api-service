@@ -10,6 +10,7 @@ const info = (name: string): CaptionInfo =>
 const EN_VIDEO = 'lXUZvyajciY'; // manual en+es, auto en (orig)
 const DE_VIDEO = 'fW4SwcMQYdA'; // no manual, auto de (orig), language "de-DE"
 const PROM_VIDEO = 'Me-kZi4xkEs'; // no manual, auto en (orig)
+const DUB_VIDEO = 'U6KChi90nHs'; // English talk, AI-dubbed: one `-orig` ASR track per dub language
 
 function expectErr(fn: () => unknown, code: string) {
   try {
@@ -42,6 +43,37 @@ describe('listTracks', () => {
   it('falls back to the top-level language when no -orig key exists', () => {
     const t = listTracks(captionInfoSchema.parse({ language: 'de-DE', subtitles: { de: [{ ext: 'json3', url: 'https://x/y?fmt=json3' }] }, automatic_captions: {} }));
     expect(t.origLang).toBe('de');
+  });
+});
+
+describe('AI auto-dubbed videos', () => {
+  it('takes the original language from `language`, not from the last -orig key', () => {
+    const i = info(DUB_VIDEO);
+    expect(Object.keys(i.automatic_captions).filter((k) => k.endsWith('-orig')).at(-1)).toBe('uk-orig'); // the trap
+    expect(listTracks(i).origLang).toBe('en');
+  });
+
+  it('never serves the ASR of a dub track', () => {
+    const t = listTracks(info(DUB_VIDEO));
+    expect(new URL(t.auto.get('en')!.url).searchParams.get('lang')).toBe('en');
+    for (const k of ['uk', 'bn', 'fr-FR', 'de-DE']) expect(t.auto.has(k)).toBe(false);
+    for (const tr of t.auto.values()) expect(new URL(tr.url).searchParams.has('variant')).toBe(false);
+  });
+
+  it('selects the English original track', () => {
+    const t = selectTrack(info(DUB_VIDEO));
+    expect(t).toMatchObject({ lang: 'en', kind: 'auto' });
+    expect(new URL(t.url).searchParams.has('tlang')).toBe(false);
+  });
+
+  it('without `language`, picks the -orig track that has no dub variant', () => {
+    const i = info(DUB_VIDEO);
+    expect(listTracks({ ...i, language: undefined }).origLang).toBe('en');
+    expect(selectTrack({ ...i, language: undefined })).toMatchObject({ lang: 'en', kind: 'auto' });
+  });
+
+  it('an explicit ?lang= for a dub language finds no track instead of the dub ASR', () => {
+    expectErr(() => selectTrack(info(DUB_VIDEO), 'uk'), 'LANG_UNAVAILABLE');
   });
 });
 

@@ -55,6 +55,12 @@ const envSchema = z
     LLM_MAX_OUTPUT_TOKENS: positiveInt(2000),
     SUMMARY_CHARS_PER_TOKEN: z.coerce.number().min(1).default(3.5),
     SUMMARY_CACHE_DIR: z.string().default('/data/summaries'),
+    // Languages a summary may be written in, e.g. "en,de": a transcript in one of them is
+    // summarised in that language, any other in the first. Unset = transcript language.
+    SUMMARY_LANGUAGES: z.preprocess(
+      (v) => (typeof v === 'string' ? v.split(',').map((l) => l.trim().toLowerCase()).filter(Boolean) : []),
+      z.array(z.string().regex(/^[a-z]{2,3}$/, 'must be comma-separated language codes like "en,de"'))
+    ),
 
     // Obsidian note export (one Markdown file per summary); unset = disabled
     OBSIDIAN_EXPORT_DIR: optionalString,

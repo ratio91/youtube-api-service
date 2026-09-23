@@ -67,7 +67,7 @@ const summarizer = new Summarizer({
 const exporter = config.OBSIDIAN_EXPORT_DIR
   ? new ObsidianExporter({ dir: config.OBSIDIAN_EXPORT_DIR, tags: config.OBSIDIAN_TAGS.split(',').map((t) => t.trim()).filter(Boolean) })
   : undefined;
-const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore, exporter });
+const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore, exporter, summaryLanguages: config.SUMMARY_LANGUAGES });
 
 const health = createHealthProvider({
   youtube,

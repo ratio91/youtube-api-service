@@ -28,6 +28,9 @@ services:
       # Obsidian notes: one Markdown file per summary, synced into the vault by the
       # syncthing service below. Empty value disables the export.
       OBSIDIAN_EXPORT_DIR: ${OBSIDIAN_EXPORT_DIR-/data/obsidian-inbox}
+      # Summaries in English or German only: a transcript in another language is
+      # summarised in English. Empty value = always the transcript language.
+      SUMMARY_LANGUAGES: ${SUMMARY_LANGUAGES-en,de}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

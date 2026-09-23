@@ -10,7 +10,7 @@ import { log, errorMessage } from '../log';
 export interface SummaryOptions {
   /** transcript track language */
   lang?: string;
-  /** language of the summary; defaults to the transcript language */
+  /** language of the summary; defaults to the transcript language (see summaryLanguages) */
   summaryLang?: string;
   /** regenerate even when a cached summary exists */
   refresh?: boolean;
@@ -44,8 +44,22 @@ export class SummaryService {
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private readonly deps: { transcripts: TranscriptService; summarizer: Summarizer; store: SummaryStore; exporter?: ObsidianExporter; now?: () => number }
+    private readonly deps: {
+      transcripts: TranscriptService;
+      summarizer: Summarizer;
+      store: SummaryStore;
+      exporter?: ObsidianExporter;
+      /** allowed default summary languages (SUMMARY_LANGUAGES); empty = transcript language */
+      summaryLanguages?: string[];
+      now?: () => number;
+    }
   ) {}
+
+  private defaultSummaryLang(transcriptLang: string): string {
+    const allowed = this.deps.summaryLanguages ?? [];
+    const lang = primarySubtag(transcriptLang);
+    return allowed.length === 0 || allowed.includes(lang) ? lang : allowed[0];
+  }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
     const next = this.queue.then(task, task);
@@ -56,7 +70,7 @@ export class SummaryService {
   async getSummary(videoId: string, opts: SummaryOptions = {}): Promise<SummaryResult> {
     // Transcript first (normally a cache hit) so the default summary language is known.
     const track = await this.deps.transcripts.getEntries(videoId, { lang: opts.lang });
-    const summaryLang = primarySubtag(opts.summaryLang ?? track.lang) || 'en';
+    const summaryLang = primarySubtag(opts.summaryLang ?? this.defaultSummaryLang(track.lang)) || 'en';
 
     if (!opts.refresh) {
       const hit = await this.deps.store.get(videoId, summaryLang);

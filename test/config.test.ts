@@ -12,7 +12,7 @@ const configModule = path.join(projectRoot, 'src', 'config.ts');
 function runConfigWithEnv(env: Record<string, string>) {
   return spawnSync(
     process.execPath,
-    ['-r', tsNodeRegister, '-e', `const c = require(${JSON.stringify(configModule)}).config; console.log(JSON.stringify({ oauth: c.oauth, delay: c.TRANSCRIPT_BATCH_DELAY_MS, max: c.TRANSCRIPT_BATCH_MAX }))`],
+    ['-r', tsNodeRegister, '-e', `const c = require(${JSON.stringify(configModule)}).config; console.log(JSON.stringify({ oauth: c.oauth, delay: c.TRANSCRIPT_BATCH_DELAY_MS, max: c.TRANSCRIPT_BATCH_MAX, langs: c.SUMMARY_LANGUAGES }))`],
     { cwd: projectRoot, env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf-8', timeout: 30_000 }
   );
 }
@@ -39,7 +39,7 @@ describe('config env validation (child process)', () => {
     const result = runConfigWithEnv(basicOnly);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ oauth: null, delay: 3000, max: 50 });
+    expect(JSON.parse(result.stdout)).toEqual({ oauth: null, delay: 3000, max: 50, langs: [] });
   }, 60_000);
 
   it('treats empty OAuth values (as in .env.example) as unset', () => {
@@ -67,5 +67,14 @@ describe('config env validation (child process)', () => {
     const bad = runConfigWithEnv({ ...basicOnly, TRANSCRIPT_BATCH_DELAY_MS: 'soon' });
     expect(bad.status).toBe(1);
     expect(bad.stderr).toContain('TRANSCRIPT_BATCH_DELAY_MS');
+  }, 60_000);
+
+  it('parses SUMMARY_LANGUAGES as a lower-cased list and rejects non-codes', () => {
+    const ok = runConfigWithEnv({ ...basicOnly, SUMMARY_LANGUAGES: ' EN, de ,' });
+    expect(ok.status).toBe(0);
+    expect(JSON.parse(ok.stdout).langs).toEqual(['en', 'de']);
+    const bad = runConfigWithEnv({ ...basicOnly, SUMMARY_LANGUAGES: 'english' });
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain('SUMMARY_LANGUAGES');
   }, 60_000);
 });

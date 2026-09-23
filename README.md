@@ -67,6 +67,7 @@ Copy `.env.example` to `.env` and fill it in. Empty values count as unset.
 | `LLM_MAX_OUTPUT_TOKENS` | no | `2000` | Output budget of the final summary (a cut-off answer is retried once with 1.6×, which re-sends the whole prompt) |
 | `SUMMARY_CHARS_PER_TOKEN` | no | `3.5` | Conservative estimate used to decide single-shot vs. chunked |
 | `SUMMARY_CACHE_DIR` | no | `/data/summaries` | Where summaries are stored |
+| `SUMMARY_LANGUAGES` | no | unset (compose: `en,de`) | Languages a summary may be written in; a transcript in any other language is summarised in the first one. Unset = the transcript language |
 | `OBSIDIAN_EXPORT_DIR` | no | – (compose: `/data/obsidian-inbox`) | Directory for Obsidian notes; unset disables the export |
 | `OBSIDIAN_TAGS` | no | `video,youtube` | Tags written into each note's frontmatter |
 | `SYNCTHING_DEVICE_NAME`, `SYNCTHING_GUI_PORT` | compose only | `youtube-api`, `8384` | Syncthing side-car settings |
@@ -194,7 +195,9 @@ so a broken transcript backend shows up in monitoring without flapping the conta
 
 Track selection order without `lang`: **manual captions in the video's original
 language → auto-generated captions in that language → any manual track (en, de
-preferred) → any auto-generated track.** Auto-*translated* tracks are never served.
+preferred) → any auto-generated track.** Auto-*translated* tracks are never served,
+and neither is the speech recognition of YouTube's AI-dubbed audio tracks: for a dubbed
+video the original language is the one yt-dlp reports as the video's `language`.
 With `lang`, manual then auto in that language is used (`en-US` matches `en` and
 vice versa); otherwise `404` with the languages that do exist.
 
@@ -286,7 +289,10 @@ automation can skip videos it already has:
 Reads the transcript (from the cache when possible), sends it to the local LLM with a
 fixed prompt and returns structured Markdown. `lang` selects the transcript track as
 for `/transcript`; `summaryLang` selects the language of the notes and defaults to the
-transcript language; `refresh=true` regenerates an existing summary.
+transcript language, or to the first entry of `SUMMARY_LANGUAGES` when that is set and
+the transcript is in none of them (the compose file sets `en,de`: a French talk gets
+English notes, written by the LLM from the original transcript); `refresh=true`
+regenerates an existing summary.
 
 ```json
 {
@@ -486,10 +492,13 @@ Reading is nearly free; **sorting 100 videos into topic playlists (add + remove)
 
 ## n8n usage
 
-An importable workflow lives in [`deploy/n8n/`](deploy/n8n/README.md): daily, it reads
-the inbox playlist with n8n's own YouTube credential, asks `GET /summaries` what is
-already done, and calls `GET /summary/:videoId` for the rest. The service caches the
-transcript and the summary and writes the Obsidian note, so n8n only orchestrates.
+An importable workflow lives in [`deploy/n8n/`](deploy/n8n/README.md): nightly, it reads
+every video from an n8n Data Table (inbox and already-sorted videos alike, so sorting a
+video out of the inbox never loses its summary), asks `GET /summaries` what is already
+done, and calls `GET /summary/:videoId` for the rest until a morning deadline. Outcomes
+(`done`, `no_captions`, `failed`) go back into the table, so final answers are not asked
+again. The service caches the transcript and the summary and writes the Obsidian note,
+so n8n only orchestrates.
 
 Building your own nodes instead, the rules are:
 
@@ -498,7 +507,8 @@ Building your own nodes instead, the rules are:
   and enable *Never Error* + *Include Response Headers and Status* + *On Error →
   Continue*, then branch on `statusCode`.
 - **Status codes**: `200` done (`markdown`, `note.fileName`), `404` no captions (skip
-  for good; the service remembers it for a week), `503` retry next run (blocked,
+  for good; the service only remembers it for `NO_CAPTIONS_TTL_DAYS`, so record it on
+  your side), `503` retry next run (blocked,
   rate-limited, LLM down), `500` needs a look. `retryable` in the body says the same.
 - **Skip known videos** with `GET /summaries` (or `GET /transcripts`) once per run.
 - **Transcript only**: `GET /transcript/:videoId?format=text` gives one clean string for
