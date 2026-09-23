@@ -356,3 +356,8 @@ the `-orig` track without `variant`; auto tracks with a `variant` are never serv
 default `en,de`): an en/de transcript keeps its language, any other is summarised in
 English by the LLM from the original transcript. Unset keeps the old behaviour; an
 explicit `?summaryLang=` wins. Nightly workflow stays inactive until this is deployed.
+- Deployed `37357ff` on the home machine (health ok, `SUMMARY_LANGUAGES=en,de`). The
+  Ukrainian transcript and summary of `U6KChi90nHs` were moved aside; the regenerated
+  summary uses the `en` auto track (74.8 s, single) and overwrote the existing note in
+  place (`language: en`). Live probe of the three field-test videos: one `-orig` key
+  each, no `variant` anywhere, `language` set (docs/verified/2026-09-23-ytdlp-auto-dub.md).
