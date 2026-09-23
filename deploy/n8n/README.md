@@ -9,64 +9,81 @@ service, whether the video is still in the inbox playlist or already sorted out 
 Nightly 01:00 → Config → Health → Service ready? ─no→ Not ready (stop)
                                        │yes
                                        ▼
-                         Known Summaries (GET /summaries)
+          Known Summaries (GET /summaries) → Get Playlists (taxonomy table)
                                        ▼
-                         Get Rows (table rows without a final summaryStatus)
+                         Get Rows (all yt_inbox rows, once)
                            │                         │
                            ▼                         ▼
-             Already Summarised → Mark Done      Plan (drop known / dead, newest first,
-                                                       cap maxPerRun, set deadline)
+             Already Summarised → Mark Done      Plan: "classify" items (summary exists, no
+                                                 suggestion yet) first, then "summarize"
+                                                 items newest first; cap, deadline
                                                      ▼
        ┌──────────────────────────────────────► Loop Videos ──done──► Summary
        │                                             ▼
-       │                              In Time? ─no──► Deferred ─────────┐
-       │                                 │yes                           │
-       │                                 ▼                              │
-       │               Summarize (GET /summary/:id, 15 min timeout)     │
-       │                                 ▼                              │
-       │                              Classify                          │
-       │                                 ▼                              │
-       │            Final? ─yes→ Record Status · ─no→ Record Note       │
-       │                                 ▼                              │
-       └──────────────────────────── Result ◄───────────────────────────┘
+       │                              In Time? ─no──► Deferred ──────────────────────┐
+       │                                 │yes                                        │
+       │                          Needs Summary? ──no (classify)──┐                  │
+       │                                 │yes                     │                  │
+       │               Summarize (GET /summary/:id) → Classify    │                  │
+       │                 → Final? → Record Status / Record Note   │                  │
+       │                 → Result → Suggest? (done) ─no──────────►│──► loop          │
+       │                                 │yes                     ▼                  │
+       │                        Suggest (POST /classify/:id) → Read Suggestion       │
+       │                          → Suggestion OK? ─yes→ Record Suggestion           │
+       │                                 ▼                                           │
+       └────────────────────────── Suggest Result ◄──────────────────────────────────┘
 ```
 
 The service does the heavy lifting: it fetches the transcript once, summarises with the
-local LLM, caches both, and writes the Obsidian note into the Syncthing folder. n8n
-decides *which* videos to ask for and records the outcome in the table.
+local LLM, caches both, writes the Obsidian note into the Syncthing folder, and suggests
+a playlist from the summary (`POST /classify`). n8n decides *which* videos to ask for
+and records the outcome in the table. Nothing is moved on YouTube: a suggestion only
+becomes a move when you approve it (see [Suggestions](#suggestions)).
 
 ## The table
 
 The workflow reads a Data Table (e.g. `yt_inbox`) that another workflow fills: one row
 per video, keyed by `videoId`. It only reads `videoId`, `title`, `targetName` and
-`createdAt`, and only writes two string columns you add before the first run:
+`createdAt`, and only writes these string columns, which you add before the first run:
 
 | Column | Values |
 |---|---|
 | `summaryStatus` | empty (to do) · `done` · `no_captions` · `failed` |
 | `summaryNote` | date + outcome or error, e.g. `2026-09-24 VIDEO_UNAVAILABLE: …` |
+| `suggestedPlaylistId` | playlist id suggested by the LLM; empty for "none" |
+| `suggestedName` | playlist name, or `none`; empty = not suggested yet |
+| `suggestConfidence` | `high` · `medium` · `low` |
+| `suggestReason` | one sentence from the model |
 
-Rows with `targetName = dead` are skipped. If the columns are missing, **Get Rows**
-fails with `Column(s) "summaryStatus" do not exist` and nothing is called.
+A second table holds the taxonomy that is sent to `/classify`: one row per topic playlist
+with `playlistId`, `name` and `description` (the description is a binding rule; a
+`Not: … (-> other playlist)` part redirects topics). If it is empty, no suggestions are
+made.
 
-The table updates map only these two columns, so they never touch the other workflow's
-columns. The reverse must hold too: a workflow that **upserts** rows must not map
-`summaryStatus`/`summaryNote`, or an empty value there clears them (n8n writes NULL for
-a mapped empty value).
+Rows with `targetName = dead` are skipped. If a column is missing, **Get Rows** fails
+with `Column(s) "…" do not exist` and nothing is called.
+
+The table updates map only their own columns, so they never touch the other workflow's
+columns. The reverse must hold too: a workflow that **upserts** rows must not map these
+six columns, or an empty value there clears them (n8n writes NULL for a mapped empty
+value).
 
 ## Import
 
-1. Add the two columns above to the table (n8n UI → *Data tables*).
+1. Add the six columns above to the table (n8n UI → *Data tables*) and create the
+   taxonomy table.
 2. n8n → *Workflows* → *Create* → menu *Import from File* → pick the JSON.
 3. Open the **Config** node and set
    - `baseUrl`: the service on your tailnet, e.g. `http://<home-machine tailscale ip>:3000`
-   - `dataTableId`: the table's ID (from its URL)
+   - `dataTableId`: the video table's ID (from its URL)
+   - `playlistsTableId`: the taxonomy table's ID
    - `stopAt` (default `06:30`): no new video starts after this time. One video takes
      at most ~15 minutes, so the run ends before 07:00
    - `maxRunMinutes` (default 330): the time budget for a run started *after* `stopAt`,
      e.g. a manual run during the day
-   - `maxPerRun` (default 150): safety net only; the deadline normally ends the run.
-4. Check the credentials: **Known Summaries** and **Summarize** need the HTTP Basic Auth
+   - `maxPerRun` (default 150): caps summaries per run, as a safety net; the deadline
+     normally ends the run. Suggestion-only items are not capped (seconds each).
+4. Check the credentials: **Known Summaries**, **Summarize** and **Suggest** need the HTTP Basic Auth
    credential with the service's `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` (the file references
    the credential of the instance it was built on; on another instance re-select it).
 5. Times use the workflow timezone (*Settings → Timezone*, preset to `Europe/Vienna`).
@@ -88,12 +105,30 @@ To re-queue a video, clear its `summaryStatus` in the table, e.g. to re-check
 Rows whose video already has a summary in the service (from earlier manual calls) are
 marked `done` once by **Already Summarised → Mark Done**.
 
+## Suggestions
+
+After every `done`, and for every summarised row without a suggestion (including rows
+that are already sorted, which gives live accuracy data), the workflow calls
+`POST /classify/:videoId` with the taxonomy and writes the four `suggest*` columns. A
+409, 503 or invalid model answer writes nothing; the row is tried again next run. To
+re-suggest (e.g. after changing descriptions), clear `suggestedName`.
+
+The workflow never writes `status` or the target columns. Approval happens in the sort
+workflow: set a row's `status` to `approved` and the sort job copies `suggestedPlaylistId`
+/ `suggestedName` into the target columns and moves the video. To decide differently, set
+`targetPlaylistId`, `targetName`, `action = move`, `status = pending` yourself; the
+suggestion stays, so suggested vs. decided remains comparable.
+
 ## Node settings that matter
 
 - **Summarize**: *Response → Include Response Headers and Status* (`fullResponse`) and
   *Never Error* are on, plus *Settings → On Error → Continue*, so a 404 or 503 becomes
   data for **Classify** instead of aborting the run. Timeout 900 000 ms.
-- **Record Status / Record Note / Mark Done** are Data Table *update* nodes matched on
+- **Get Rows** has *Execute Once* on, so it runs once even though **Get Playlists**
+  returns one item per playlist.
+- **Suggest** posts the JSON body built from **Get Playlists** (*Send Body → JSON →
+  Using JSON*), with the same response and error settings as **Summarize**.
+- **Record Status / Record Note / Mark Done / Record Suggestion** are Data Table *update* nodes matched on
   `videoId`, mapping only their columns (*Define below*). They have *Always Output Data*
   and *On Error → Continue*, so a table problem never stops the loop. If you edit their
   mapping in the UI, check that no other column was added to it.
@@ -107,8 +142,9 @@ marked `done` once by **Already Summarised → Mark Done**.
 The final **Summary** item looks like
 
 ```json
-{ "processed": 42, "counts": { "done": 30, "no_captions": 6, "retry": 1, "deferred": 5 }, "attention": [ … ] }
+{ "processed": 60, "counts": { "done": 30, "classify-only": 18, "no_captions": 6, "retry": 1, "deferred": 5 },
+  "suggestions": { "high": 31, "medium": 12, "low": 4, "retry": 1 }, "attention": [ … ] }
 ```
 
-`attention` lists videos with status `retry` or `failed`. The table is the durable
+`attention` lists videos with status `retry` or `failed`, or a suggestion to retry. The table is the durable
 record: filter it by `summaryStatus = failed` to review errors.

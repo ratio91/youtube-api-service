@@ -40,6 +40,12 @@
               "type": "string"
             },
             {
+              "id": "621c4800-349e-5820-89c7-e1127a27bb55",
+              "name": "playlistsTableId",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
               "id": "b9238b55-8e33-564c-af1e-8da287be965a",
               "name": "stopAt",
               "value": "06:30",
@@ -69,7 +75,7 @@
         -980,
         300
       ],
-      "notes": "baseUrl = the service on your tailnet. dataTableId = the yt_inbox Data Table. No new video starts after stopAt (workflow timezone); a run started after stopAt gets maxRunMinutes instead. maxPerRun is a safety net only.",
+      "notes": "baseUrl = the service on your tailnet. dataTableId = the yt_inbox Data Table, playlistsTableId = the taxonomy table (playlistId, name, description). No new video starts after stopAt (workflow timezone); a run started after stopAt gets maxRunMinutes instead. maxPerRun caps summaries only (safety net).",
       "notesInFlow": true
     },
     {
@@ -184,17 +190,12 @@
             {
               "keyName": "summaryStatus",
               "condition": "neq",
-              "keyValue": "done"
+              "keyValue": "__never__"
             },
             {
-              "keyName": "summaryStatus",
+              "keyName": "suggestedName",
               "condition": "neq",
-              "keyValue": "no_captions"
-            },
-            {
-              "keyName": "summaryStatus",
-              "condition": "neq",
-              "keyValue": "failed"
+              "keyValue": "__never__"
             }
           ]
         },
@@ -205,12 +206,13 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        -100,
+        120,
         200
       ],
       "alwaysOutputData": true,
-      "notes": "Rows without a final summaryStatus (neq also matches unset columns). Fails loudly if the summaryStatus column is missing.",
-      "notesInFlow": true
+      "notes": "All rows (neq also matches unset values); runs once. Fails loudly if summaryStatus or suggestedName is missing.",
+      "notesInFlow": true,
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -222,7 +224,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        120,
+        340,
         0
       ]
     },
@@ -282,7 +284,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        340,
+        560,
         0
       ],
       "alwaysOutputData": true,
@@ -291,14 +293,14 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// One item per table row still to summarise: no final summaryStatus (null and '' alike),\n// no summary in the service yet, not a dead video. Newest rows first, capped by maxPerRun.\n// The deadline is computed once: today's stopAt, or now + maxRunMinutes for a run started\n// after stopAt (manual daytime runs).\nconst cfg = $('Config').first().json;\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst [h, m] = String(cfg.stopAt ?? '06:30').split(':').map(Number);\nlet deadline = $now.set({ hour: h, minute: m, second: 0, millisecond: 0 });\nif (deadline <= $now) deadline = $now.plus({ minutes: Number(cfg.maxRunMinutes) || 330 });\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r.videoId && !r.summaryStatus && !known.has(r.videoId) && r.targetName !== 'dead')\n  .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));\nconst seen = new Set();\nconst out = [];\nfor (const r of rows) {\n  if (seen.has(r.videoId)) continue;\n  seen.add(r.videoId);\n  out.push({ json: { videoId: r.videoId, title: r.title ?? '', deadline: deadline.toISO(), deadlineMs: deadline.toMillis() } });\n}\nreturn out.slice(0, Number(cfg.maxPerRun) || 150);\n"
+        "jsCode": "// Two kinds of work, one item each:\n//  - \"classify\": the video already has a summary (summaryStatus done, or a summary in the\n//    service) but no suggestion yet → only POST /classify (cheap, summary is cached).\n//  - \"summarize\": no final summaryStatus, no summary yet → GET /summary, then /classify.\n// Dead videos are skipped. Classify items first (seconds each), then summaries newest\n// first, capped by maxPerRun. The deadline is computed once: today's stopAt, or\n// now + maxRunMinutes for a run started after stopAt (manual daytime runs).\nconst cfg = $('Config').first().json;\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst hasTaxonomy = $('Get Playlists').all().some(i => i.json.playlistId);\nconst [h, m] = String(cfg.stopAt ?? '06:30').split(':').map(Number);\nlet deadline = $now.set({ hour: h, minute: m, second: 0, millisecond: 0 });\nif (deadline <= $now) deadline = $now.plus({ minutes: Number(cfg.maxRunMinutes) || 330 });\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r.videoId && r.targetName !== 'dead')\n  .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));\nconst seen = new Set();\nconst classify = [];\nconst summarize = [];\nfor (const r of rows) {\n  if (seen.has(r.videoId)) continue;\n  seen.add(r.videoId);\n  const base = { videoId: r.videoId, title: r.title ?? '', deadline: deadline.toISO(), deadlineMs: deadline.toMillis() };\n  const summarised = r.summaryStatus === 'done' || known.has(r.videoId);\n  if (summarised) { if (hasTaxonomy && !r.suggestedName) classify.push({ json: { ...base, mode: 'classify' } }); }\n  else if (!r.summaryStatus) summarize.push({ json: { ...base, mode: 'summarize' } });\n}\nreturn [...classify, ...summarize.slice(0, Number(cfg.maxPerRun) || 150)];\n"
       },
       "id": "726f24ca-2ca3-5fd5-9161-fe48924266ac",
       "name": "Plan",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        120,
+        340,
         200
       ]
     },
@@ -312,7 +314,7 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        340,
+        560,
         200
       ]
     },
@@ -345,7 +347,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        560,
+        780,
         300
       ]
     },
@@ -359,7 +361,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        780,
+        1000,
         500
       ]
     },
@@ -383,7 +385,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        780,
+        1220,
         200
       ],
       "onError": "continueRegularOutput",
@@ -406,7 +408,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1000,
+        1440,
         200
       ]
     },
@@ -439,7 +441,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        1220,
+        1660,
         200
       ]
     },
@@ -499,7 +501,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        1440,
+        1880,
         100
       ],
       "alwaysOutputData": true,
@@ -550,7 +552,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        1440,
+        1880,
         300
       ],
       "alwaysOutputData": true,
@@ -566,22 +568,303 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1660,
+        2100,
         200
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all().map(i => i.json);\nconst counts = {};\nfor (const i of items) counts[i.status] = (counts[i.status] ?? 0) + 1;\nconst attention = items.filter(i => i.status === 'failed' || i.status === 'retry')\n  .map(i => ({ videoId: i.videoId, title: i.title, status: i.status, note: i.note }));\nreturn [{ json: { processed: items.length, counts, attention } }];\n"
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst counts = {};\nfor (const i of items) counts[i.status] = (counts[i.status] ?? 0) + 1;\nconst suggestions = {};\nfor (const i of items.filter(i => i.suggestion)) {\n  const k = i.suggestion.startsWith('retry') ? 'retry' : i.suggestion.replace(/^.*\\((\\w+)\\)$/, '$1');\n  suggestions[k] = (suggestions[k] ?? 0) + 1;\n}\nconst attention = items.filter(i => i.status === 'failed' || i.status === 'retry' || i.suggestion?.startsWith('retry'))\n  .map(i => ({ videoId: i.videoId, title: i.title, status: i.status, note: i.note, suggestion: i.suggestion }));\nreturn [{ json: { processed: items.length, counts, suggestions, attention } }];\n"
       },
       "id": "ae118624-86ba-5a33-9679-aa858786cf28",
       "name": "Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        560,
+        780,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.playlistsTableId }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "playlistId",
+              "condition": "isNotEmpty"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "65d07684-4f74-563c-901b-4d068a678d5a",
+      "name": "Get Playlists",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -100,
+        400
+      ],
+      "alwaysOutputData": true,
+      "notes": "Taxonomy sent to POST /classify. Empty table = no suggestions this run.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "90bf0110-6cab-5f23-8d40-517890e1b3b1",
+              "leftValue": "={{ String($('Loop Videos').first().json.mode === 'summarize') }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e20acc48-1af5-5772-ab56-8296a17ca6fa",
+      "name": "Needs Summary?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5dfbb558-7d15-508e-bfe1-8196a039cb75",
+              "leftValue": "={{ String($json.status === 'done' && $('Get Playlists').all().some(i => i.json.playlistId)) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "643b77ce-4550-5a1b-b156-875231715843",
+      "name": "Suggest?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2320,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.baseUrl }}/classify/{{ $('Loop Videos').first().json.videoId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ playlists: $('Get Playlists').all().filter(i => i.json.playlistId).map(i => ({ playlistId: i.json.playlistId, name: i.json.name, description: i.json.description ?? '' })) }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "id": "2997a450-2eb7-5d90-8734-b459da58a95b",
+      "name": "Suggest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2540,
+        400
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "TUaQfRSfr3pvaJJL",
+          "name": "youtube api service"
+        }
+      },
+      "notes": "Playlist suggestion from the cached summary (seconds; waits behind a running summary).",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 200 with a valid answer → write the four suggest* columns (\"none\" = empty playlistId).\n// \"invalid model output\", 409 (no summary), 503 or a failed request → write nothing;\n// the row keeps an empty suggestedName and is tried again next run.\nconst v = $('Loop Videos').first().json;\nconst r = $input.first().json;\nconst code = r.statusCode ?? 0;\nconst body = r.body ?? {};\nconst ok = !r.error && code === 200 && body.reason !== 'invalid model output';\nreturn [{ json: {\n  videoId: v.videoId,\n  ok,\n  suggestedPlaylistId: ok ? (body.playlistId ?? '') : null,\n  suggestedName: ok ? (body.name ?? 'none') : null,\n  suggestConfidence: ok ? body.confidence : null,\n  suggestReason: ok ? String(body.reason ?? '').slice(0, 200) : null,\n  suggestion: ok ? `${body.name ?? 'none'} (${body.confidence})` : `retry: ${r.error ? String(r.error?.message ?? r.error).slice(0, 120) : `${body.code ?? `http ${code}`} ${body.reason ?? ''}`.trim()}`,\n} }];\n"
+      },
+      "id": "f7292087-e219-5499-8ca8-d462dff4b1ab",
+      "name": "Read Suggestion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2760,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "550ce650-3eac-58f9-8cd8-98b90984eaa2",
+              "leftValue": "={{ String($json.ok) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "18c83da1-2d5b-55de-a68e-08cf1ce8c5bf",
+      "name": "Suggestion OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2980,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.dataTableId }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "videoId",
+              "condition": "eq",
+              "keyValue": "={{ $json.videoId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "suggestedPlaylistId": "={{ $json.suggestedPlaylistId }}",
+            "suggestedName": "={{ $json.suggestedName }}",
+            "suggestConfidence": "={{ $json.suggestConfidence }}",
+            "suggestReason": "={{ $json.suggestReason }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "suggestedPlaylistId",
+              "displayName": "suggestedPlaylistId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "suggestedName",
+              "displayName": "suggestedName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "suggestConfidence",
+              "displayName": "suggestConfidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "suggestReason",
+              "displayName": "suggestReason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "05ca9e2e-963c-58aa-8ced-7deaa8ee1295",
+      "name": "Record Suggestion",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3200,
+        300
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// One outcome item per video back to the loop: the summary outcome (if this video was\n// summarised in this iteration) plus the suggestion.\nconst v = $('Loop Videos').first().json;\nconst s = $('Read Suggestion').first().json;\nconst base = v.mode === 'summarize' ? $('Classify').first().json : { videoId: v.videoId, title: v.title, status: 'classify-only' };\nreturn [{ json: { ...base, suggestion: s.suggestion } }];\n"
+      },
+      "id": "f798df5c-1620-5d73-a240-a2b5d62f10ee",
+      "name": "Suggest Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3420,
+        400
       ]
     }
   ],
@@ -623,7 +906,7 @@
       "main": [
         [
           {
-            "node": "Get Rows",
+            "node": "Get Playlists",
             "type": "main",
             "index": 0
           }
@@ -727,7 +1010,7 @@
       "main": [
         [
           {
-            "node": "Loop Videos",
+            "node": "Suggest?",
             "type": "main",
             "index": 0
           }
@@ -774,7 +1057,7 @@
       "main": [
         [
           {
-            "node": "Summarize",
+            "node": "Needs Summary?",
             "type": "main",
             "index": 0
           }
@@ -800,6 +1083,115 @@
         [
           {
             "node": "Record Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Playlists": {
+      "main": [
+        [
+          {
+            "node": "Get Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Summary?": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Suggest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suggest?": {
+      "main": [
+        [
+          {
+            "node": "Suggest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suggest": {
+      "main": [
+        [
+          {
+            "node": "Read Suggestion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Suggestion": {
+      "main": [
+        [
+          {
+            "node": "Suggestion OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suggestion OK?": {
+      "main": [
+        [
+          {
+            "node": "Record Suggestion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Suggest Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Suggestion": {
+      "main": [
+        [
+          {
+            "node": "Suggest Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suggest Result": {
+      "main": [
+        [
+          {
+            "node": "Loop Videos",
             "type": "main",
             "index": 0
           }

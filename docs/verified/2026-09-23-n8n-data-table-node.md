@@ -52,6 +52,13 @@ Used by `deploy/n8n/youtube-summaries-nightly.json`.
     `options.timeout` (ms). — `packages/nodes-base/nodes/HttpRequest/HttpRequest.node.ts`,
     `packages/nodes-base/nodes/HttpRequest/V3/Description.ts`
 
+13. HTTP Request JSON body (added 2026-09-23): `method: "POST"`, `sendBody: true`,
+    `contentType: "json"` (default), `specifyBody: "json"`, `jsonBody` = string (an
+    expression is parsed as JSON). — `packages/nodes-base/nodes/HttpRequest/V3/Description.ts`
+    L14, L347–405, L469; `HttpRequestV3.node.ts` L269–275, L431–441
+14. Node setting `executeOnce` (run once with the first input item) exists on `INode`.
+    — `packages/workflow/src/interfaces.ts` L1522
+
 ## Not verified live
 
 - Empty string vs NULL behaviour on the instance's database (read from code only). The

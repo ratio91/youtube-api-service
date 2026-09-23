@@ -548,8 +548,10 @@ every video from an n8n Data Table (inbox and already-sorted videos alike, so so
 video out of the inbox never loses its summary), asks `GET /summaries` what is already
 done, and calls `GET /summary/:videoId` for the rest until a morning deadline. Outcomes
 (`done`, `no_captions`, `failed`) go back into the table, so final answers are not asked
-again. The service caches the transcript and the summary and writes the Obsidian note,
-so n8n only orchestrates.
+again. After each summary it asks `POST /classify/:videoId` for a playlist suggestion
+and stores it in the table; nothing moves on YouTube until you approve a suggestion. The
+service caches the transcript and the summary and writes the Obsidian note, so n8n only
+orchestrates.
 
 Building your own nodes instead, the rules are:
 

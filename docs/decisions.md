@@ -407,3 +407,18 @@ writes to yt_inbox before the operator has seen the numbers.
   it, llama-server logs `prompt cache is enabled, size limit: 2048 MiB`, model loaded in
   25 s, `/health` llm ok. A few summaries during the reload got `503 Loading model`
   (retried next night).
+
+## 2026-09-23 — Suggestions in their own columns; approval via `status = approved`
+
+Operator + sort-job facts (from the n8n agent): the sort job acts only on
+`status = pending` rows still in the inbox; a pending row with an empty/unknown `action`
+used to be removed from the inbox without being added anywhere.
+Decisions: the classifier owns four columns `suggestedPlaylistId`, `suggestedName`,
+`suggestConfidence`, `suggestReason` and never writes `status` or the target columns
+(same ownership rule as `summaryStatus`). Approval = operator sets `status = approved`;
+the sort job copies the suggestion into the target columns and moves (no suggestion →
+failed). Sort-job guard: pending with `action` ∉ {move, remove} → failed. Overrides keep
+the suggestion, so suggested vs. decided stays measurable. The nightly workflow now
+suggests after each `done` and for every summarised row without a suggestion (incl.
+already sorted rows). Suggestions are written before the eval gate because they only
+touch their own columns; the eval gates bulk approval.
