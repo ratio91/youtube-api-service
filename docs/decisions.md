@@ -422,3 +422,8 @@ the suggestion, so suggested vs. decided stays measurable. The nightly workflow 
 suggests after each `done` and for every summarised row without a suggestion (incl.
 already sorted rows). Suggestions are written before the eval gate because they only
 touch their own columns; the eval gates bulk approval.
+
+## 2026-09-23 — Approval stays in the n8n table; Obsidian approval deferred
+
+Suggestions are approved in the `yt_inbox` table view (`status = approved`). Approving
+from Obsidian frontmatter was discussed and deferred; see `docs/backlog.md`.
