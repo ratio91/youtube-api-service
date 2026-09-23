@@ -457,3 +457,12 @@ merged into the repo file.
   (Get Notes, Consumed Notes, Mark Consumed), which are not live yet. A parallel writer
   had also swept the Evening trigger and labelled-first ordering into `c27078c`.
   From now on one writer for workflow and repo file (Claude via the n8n MCP server).
+- Deployed `99b939c` on the home machine (14:23 local; health ok, `notes.ready`).
+  Smoke test: `GET /notes` 200 with 76 notes = 76 files in the inbox, `GET /summaries`
+  carries `exportedAt` (77/77), unauthenticated 401; one video would count as consumed.
+- First live change via the n8n MCP server: added Get Notes / Consumed Notes / Mark
+  Consumed and the `noteConsumedAt` check in Get Rows to the live workflow, published as
+  version `930e9d03` (the `noteConsumedAt` column exists). Credentials are not shown by
+  the MCP read-out, so Get Notes' Basic Auth is confirmed only by the first run's
+  `/notes` status (a 401 would mark nothing). Running manual execution #43 keeps the old
+  version and starts videos until ~19:12, overlapping the 18:00 trigger once.
