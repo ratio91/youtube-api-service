@@ -6,9 +6,10 @@ that turns every video known to an n8n **Data Table** into an Obsidian note via 
 service, whether the video is still in the inbox playlist or already sorted out of it.
 
 ```
-Nightly 01:00 → Config → Health → Service ready? ─no→ Not ready (stop)
-                                       │yes
-                                       ▼
+Nightly 01:00 ┐
+Daytime 07:00 ├→ Config → Health → Service ready? ─no→ Not ready (stop)
+Evening 18:00 ┘                          │yes
+                                         ▼
   Known Summaries (GET /summaries) → Get Notes (GET /notes) → Get Playlists (taxonomy table)
                                        ▼
                          Get Rows (all yt_inbox rows, once)
@@ -16,8 +17,9 @@ Nightly 01:00 → Config → Health → Service ready? ─no→ Not ready (stop)
                ▼                  ▼                  ▼
   Consumed Notes → Mark Consumed  Already Summarised   Plan: "classify" items (summary
                                    → Mark Done        exists, no suggestion yet) first,
-                                                      then "summarize" items newest
-                                                      first; cap, deadline
+                                                      then "summarize" items:
+                                                      labelled rows first, then
+                                                      newest; cap, deadline
                                                      ▼
        ┌──────────────────────────────────────► Loop Videos ──done──► Summary
        │                                             ▼
@@ -79,17 +81,20 @@ value).
    - `baseUrl`: the service on your tailnet, e.g. `http://<home-machine tailscale ip>:3000`
    - `dataTableId`: the video table's ID (from its URL)
    - `playlistsTableId`: the taxonomy table's ID
-   - `stopAt` (default `06:30`): no new video starts after this time. One video takes
-     at most ~15 minutes, so the run ends before 07:00
-   - `maxRunMinutes` (default 330): the time budget for a run started *after* `stopAt`,
-     e.g. a manual run during the day
-   - `maxPerRun` (default 150): caps summaries per run, as a safety net; the deadline
+   - `stopAt` (default `06:30,16:30,23:30`): the ends of the LLM windows. A run's
+     deadline is the next end after its start, and no new video starts after it. One
+     video takes at most ~15 minutes, so each run ends well before the next trigger
+   - `maxRunMinutes` (default 330): fallback budget for a run started after the last
+     end of the day, e.g. a late manual run
+   - `maxPerRun` (default 250): caps summaries per run, as a safety net; the deadline
      normally ends the run. Suggestion-only items are not capped (seconds each).
 4. Check the credentials: **Known Summaries**, **Summarize** and **Suggest** need the HTTP Basic Auth
    credential with the service's `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` (the file references
    the credential of the instance it was built on; on another instance re-select it).
 5. Times use the workflow timezone (*Settings → Timezone*, preset to `Europe/Vienna`).
-6. Run once manually, then activate.
+6. Run once manually, then activate. Three schedule triggers start the windows
+   01:00–06:30, 07:00–16:30 and 18:00–23:30 (workflow timezone); remove the daytime
+   trigger if the LLM machine must stay free during the day.
 
 ## Outcomes
 

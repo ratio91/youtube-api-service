@@ -1,5 +1,5 @@
 {
-  "name": "YouTube Summaries Nightly",
+  "name": "YouTube Summaries (v2, with suggestions)",
   "nodes": [
     {
       "parameters": {
@@ -48,7 +48,7 @@
             {
               "id": "b9238b55-8e33-564c-af1e-8da287be965a",
               "name": "stopAt",
-              "value": "06:30",
+              "value": "06:30,16:30,23:30",
               "type": "string"
             },
             {
@@ -60,7 +60,7 @@
             {
               "id": "6b76ef5f-8aba-5945-a93f-68acecc14ef3",
               "name": "maxPerRun",
-              "value": 150,
+              "value": 250,
               "type": "number"
             }
           ]
@@ -75,7 +75,7 @@
         -980,
         300
       ],
-      "notes": "baseUrl = the service on your tailnet. dataTableId = the yt_inbox Data Table, playlistsTableId = the taxonomy table (playlistId, name, description). No new video starts after stopAt (workflow timezone); a run started after stopAt gets maxRunMinutes instead. maxPerRun caps summaries only (safety net).",
+      "notes": "baseUrl = the service on your tailnet. dataTableId = the yt_inbox Data Table, playlistsTableId = the taxonomy table (playlistId, name, description). stopAt = window ends (workflow timezone), e.g. \"06:30,16:30,23:30\": no new video starts after the next end following the start; with none left today a run gets maxRunMinutes. maxPerRun caps summaries only (safety net).",
       "notesInFlow": true
     },
     {
@@ -298,7 +298,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Two kinds of work, one item each:\n//  - \"classify\": the video already has a summary (summaryStatus done, or a summary in the\n//    service) but no suggestion yet → only POST /classify (cheap, summary is cached).\n//  - \"summarize\": no final summaryStatus, no summary yet → GET /summary, then /classify.\n// Dead videos are skipped. Classify items first (seconds each), then summaries (labelled\n// rows first, then newest), capped by maxPerRun. The deadline is computed once: today's stopAt, or\n// now + maxRunMinutes for a run started after stopAt (manual daytime runs).\nconst cfg = $('Config').first().json;\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst hasTaxonomy = $('Get Playlists').all().some(i => i.json.playlistId);\nconst [h, m] = String(cfg.stopAt ?? '06:30').split(':').map(Number);\nlet deadline = $now.set({ hour: h, minute: m, second: 0, millisecond: 0 });\nif (deadline <= $now) deadline = $now.plus({ minutes: Number(cfg.maxRunMinutes) || 330 });\n// Labelled rows (already sorted: targetName set, not dead) first, so the classifier eval\n// gets its test set early; then the newest rows.\nconst labelled = r => r.targetName && r.targetName !== 'dead' ? 1 : 0;\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r.videoId && r.targetName !== 'dead')\n  .sort((a, b) => (labelled(b) - labelled(a)) || String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));\nconst seen = new Set();\nconst classify = [];\nconst summarize = [];\nfor (const r of rows) {\n  if (seen.has(r.videoId)) continue;\n  seen.add(r.videoId);\n  const base = { videoId: r.videoId, title: r.title ?? '', deadline: deadline.toISO(), deadlineMs: deadline.toMillis() };\n  const summarised = r.summaryStatus === 'done' || known.has(r.videoId);\n  if (summarised) { if (hasTaxonomy && !r.suggestedName) classify.push({ json: { ...base, mode: 'classify' } }); }\n  else if (!r.summaryStatus) summarize.push({ json: { ...base, mode: 'summarize' } });\n}\nreturn [...classify, ...summarize.slice(0, Number(cfg.maxPerRun) || 150)];\n"
+        "jsCode": "// Two kinds of work, one item each:\n//  - \"classify\": the video already has a summary (summaryStatus done, or a summary in the\n//    service) but no suggestion yet → only POST /classify (cheap, summary is cached).\n//  - \"summarize\": no final summaryStatus, no summary yet → GET /summary, then /classify.\n// Dead videos are skipped. Classify items first (seconds each), then summaries (labelled\n// rows first, then newest), capped by maxPerRun. The deadline is computed once (see stopAt below).\nconst cfg = $('Config').first().json;\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst hasTaxonomy = $('Get Playlists').all().some(i => i.json.playlistId);\n// stopAt: one or more window ends, e.g. \"06:30,16:30,23:30\". The deadline is the next\n// one after the start; none left today (e.g. a late manual run) → now + maxRunMinutes.\nconst ends = String(cfg.stopAt ?? '06:30').split(',').map(s => s.trim()).filter(Boolean)\n  .map(t => { const [h, m] = t.split(':').map(Number); return $now.set({ hour: h, minute: m, second: 0, millisecond: 0 }); })\n  .filter(d => d > $now)\n  .sort((a, b) => a.toMillis() - b.toMillis());\nconst deadline = ends[0] ?? $now.plus({ minutes: Number(cfg.maxRunMinutes) || 330 });\n// Labelled rows (already sorted: targetName set, not dead) first, so the classifier eval\n// gets its test set early; then the newest rows.\nconst labelled = r => r.targetName && r.targetName !== 'dead' ? 1 : 0;\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r.videoId && r.targetName !== 'dead')\n  .sort((a, b) => (labelled(b) - labelled(a)) || String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));\nconst seen = new Set();\nconst classify = [];\nconst summarize = [];\nfor (const r of rows) {\n  if (seen.has(r.videoId)) continue;\n  seen.add(r.videoId);\n  const base = { videoId: r.videoId, title: r.title ?? '', deadline: deadline.toISO(), deadlineMs: deadline.toMillis() };\n  const summarised = r.summaryStatus === 'done' || known.has(r.videoId);\n  if (summarised) { if (hasTaxonomy && !r.suggestedName) classify.push({ json: { ...base, mode: 'classify' } }); }\n  else if (!r.summaryStatus) summarize.push({ json: { ...base, mode: 'summarize' } });\n}\nreturn [...classify, ...summarize.slice(0, Number(cfg.maxPerRun) || 150)];\n"
       },
       "id": "726f24ca-2ca3-5fd5-9161-fe48924266ac",
       "name": "Plan",
@@ -991,6 +991,28 @@
       ],
       "alwaysOutputData": true,
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "5a2b1858-8d5b-5e45-aa55-0101a3435014",
+      "name": "Daytime 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1200,
+        660
+      ]
     }
   ],
   "connections": {
@@ -1360,11 +1382,24 @@
           }
         ]
       ]
+    },
+    "Daytime 07:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "timezone": "Europe/Vienna"
+    "timezone": "Europe/Vienna",
+    "binaryMode": "separate",
+    "availableInMCP": true
   },
   "pinData": {}
 }

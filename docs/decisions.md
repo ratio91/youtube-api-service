@@ -452,3 +452,8 @@ rows are summarised first so the classifier eval can run sooner (supersedes the 
 Repo drift: the live workflow and `deploy/n8n/youtube-summaries-nightly.json` differ
 (live lacks the consumed-note steps, repo lacks these changes) until the live export is
 merged into the repo file.
+- Repo drift resolved: `deploy/n8n/youtube-summaries-nightly.json` = live version
+  `f99487d4` (three windows, labelled-first, `maxPerRun` 250) + the consumed-note steps
+  (Get Notes, Consumed Notes, Mark Consumed), which are not live yet. A parallel writer
+  had also swept the Evening trigger and labelled-first ordering into `c27078c`.
+  From now on one writer for workflow and repo file (Claude via the n8n MCP server).
