@@ -440,3 +440,15 @@ and `exportedAt` in `GET /summaries`. Consumed = exported and not in `/notes` (a
 note counts too). The nightly workflow sets a new `yt_inbox` column `noteConsumedAt`
 once per video (owner: nightly workflow; never cleared); no marking unless `/notes`
 answered a clean 200. Column added by the operator's n8n agent.
+
+## 2026-09-23 — Three LLM windows; labelled rows first (operator, applied live in n8n)
+
+The operator's n8n agent changed the live nightly workflow: three schedule triggers /
+LLM windows (01:00–06:30, 07:00–16:30, 18:00–23:30) to use the home machine's LLM for
+the backlog; `stopAt` accepts a list of window ends and the deadline is the next end
+after the start (`maxRunMinutes` only as fallback); `maxPerRun` default 250; labelled
+rows are summarised first so the classifier eval can run sooner (supersedes the earlier
+"keep newest first" choice). Trade-off: llama-server is busy during the day.
+Repo drift: the live workflow and `deploy/n8n/youtube-summaries-nightly.json` differ
+(live lacks the consumed-note steps, repo lacks these changes) until the live export is
+merged into the repo file.
