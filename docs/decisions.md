@@ -398,3 +398,8 @@ truncation = `finish_reason: length`). The real taxonomy and labels (299 labelle
 37 `needsReview`) stay out of git; the eval tool reports `needsReview` rows separately.
 **Next gate:** eval on the labelled videos once the backlog has their summaries; nothing
 writes to yt_inbox before the operator has seen the numbers.
+- Deployed `4105f11` (health ok, classification cache writable). Smoke test on one
+  labelled video: correct playlist, confidence high; first call 99 s (queued behind a
+  running summary — shared LLM queue working), second call 13 ms from cache. Only 1 of
+  299 labelled videos has a summary yet (the backlog runs newest rows first), so the
+  eval waits for the backlog.
