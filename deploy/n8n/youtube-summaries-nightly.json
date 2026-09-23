@@ -1,0 +1,815 @@
+{
+  "name": "YouTube Summaries Nightly",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 1,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "874167fa-9d39-5d3c-9646-341b6d4b7eae",
+      "name": "Nightly 01:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "93e28cb3-50f9-52bc-bcfe-51973318197f",
+              "name": "baseUrl",
+              "value": "http://CHANGE-ME:3000",
+              "type": "string"
+            },
+            {
+              "id": "e9ce55dd-e4cb-536c-88be-d2574518466a",
+              "name": "dataTableId",
+              "value": "CHANGE-ME",
+              "type": "string"
+            },
+            {
+              "id": "b9238b55-8e33-564c-af1e-8da287be965a",
+              "name": "stopAt",
+              "value": "06:30",
+              "type": "string"
+            },
+            {
+              "id": "ccadc562-b07d-5e2f-af41-f5b9d5da5636",
+              "name": "maxRunMinutes",
+              "value": 330,
+              "type": "number"
+            },
+            {
+              "id": "6b76ef5f-8aba-5945-a93f-68acecc14ef3",
+              "name": "maxPerRun",
+              "value": 150,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "caf09d04-58fc-52fe-953d-2f4322a4f57b",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -980,
+        300
+      ],
+      "notes": "baseUrl = the service on your tailnet. dataTableId = the yt_inbox Data Table. No new video starts after stopAt (workflow timezone); a run started after stopAt gets maxRunMinutes instead. maxPerRun is a safety net only.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.baseUrl }}/health",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a9931807-3edf-581a-8cd8-8ace51f238ed",
+      "name": "Health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -760,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e1105215-0001-47b5-a547-0dcbb1abd539",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "310a501c-aee7-4524-9fb3-bb0bb7063064",
+              "leftValue": "={{ String($json.llm?.ok) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "eb9be70b-8f14-5147-afef-1bca28aa4696",
+      "name": "Service ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Health said the service or its LLM is not ready: do nothing this run.\nconst h = $json;\nreturn [{ json: { skipped: true, reason: h.error ? `service unreachable: ${h.error?.message ?? h.error}` : `status=${h.status}, llm.ok=${h.llm?.ok}`, health: h } }];"
+      },
+      "id": "50fa78cd-dec8-5595-af53-5b0c23fc71fb",
+      "name": "Not ready",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.baseUrl }}/summaries",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "5c897e98-8814-5ad4-84e6-2ea13c925cd0",
+      "name": "Known Summaries",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -320,
+        200
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "TUaQfRSfr3pvaJJL",
+          "name": "youtube api service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.dataTableId }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "summaryStatus",
+              "condition": "neq",
+              "keyValue": "done"
+            },
+            {
+              "keyName": "summaryStatus",
+              "condition": "neq",
+              "keyValue": "no_captions"
+            },
+            {
+              "keyName": "summaryStatus",
+              "condition": "neq",
+              "keyValue": "failed"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "3fdceb6c-c6f9-5963-8ad0-027708c20788",
+      "name": "Get Rows",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -100,
+        200
+      ],
+      "alwaysOutputData": true,
+      "notes": "Rows without a final summaryStatus (neq also matches unset columns). Fails loudly if the summaryStatus column is missing.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Rows whose video already has a summary in the service but no summaryStatus yet\n// (made by hand or by an earlier workflow): mark them done once.\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst seen = new Set();\nconst out = [];\nfor (const r of $input.all().map(i => i.json)) {\n  if (!r.videoId || seen.has(r.videoId) || r.summaryStatus) continue;\n  seen.add(r.videoId);\n  if (known.has(r.videoId)) out.push({ json: { videoId: r.videoId } });\n}\nreturn out;\n"
+      },
+      "id": "6dbf4a31-0753-5404-902b-1e15238bef9c",
+      "name": "Already Summarised",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.dataTableId }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "videoId",
+              "condition": "eq",
+              "keyValue": "={{ $json.videoId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "summaryStatus": "done",
+            "summaryNote": "={{ 'summary existed ' + $now.toISODate() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "summaryStatus",
+              "displayName": "summaryStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "summaryNote",
+              "displayName": "summaryNote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e16f6650-248c-5382-8274-a7454d95d15d",
+      "name": "Mark Done",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        0
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// One item per table row still to summarise: no final summaryStatus (null and '' alike),\n// no summary in the service yet, not a dead video. Newest rows first, capped by maxPerRun.\n// The deadline is computed once: today's stopAt, or now + maxRunMinutes for a run started\n// after stopAt (manual daytime runs).\nconst cfg = $('Config').first().json;\nconst known = new Set(($('Known Summaries').first().json.summaries ?? []).map(s => s.videoId));\nconst [h, m] = String(cfg.stopAt ?? '06:30').split(':').map(Number);\nlet deadline = $now.set({ hour: h, minute: m, second: 0, millisecond: 0 });\nif (deadline <= $now) deadline = $now.plus({ minutes: Number(cfg.maxRunMinutes) || 330 });\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r.videoId && !r.summaryStatus && !known.has(r.videoId) && r.targetName !== 'dead')\n  .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));\nconst seen = new Set();\nconst out = [];\nfor (const r of rows) {\n  if (seen.has(r.videoId)) continue;\n  seen.add(r.videoId);\n  out.push({ json: { videoId: r.videoId, title: r.title ?? '', deadline: deadline.toISO(), deadlineMs: deadline.toMillis() } });\n}\nreturn out.slice(0, Number(cfg.maxPerRun) || 150);\n"
+      },
+      "id": "726f24ca-2ca3-5fd5-9161-fe48924266ac",
+      "name": "Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "2832b10c-1a33-52fd-9a69-cc15eb9ca5fc",
+      "name": "Loop Videos",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "00b8737e-8766-5cf5-aac5-23ecc9fb6415",
+              "leftValue": "={{ String($now.toMillis() < $json.deadlineMs) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "43ba55ab-b538-5ed3-a8de-ea3b0437c513",
+      "name": "In Time?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Past the deadline: pass the video through without calling the service; next night.\nconst v = $('Loop Videos').first().json;\nreturn [{ json: { videoId: v.videoId, title: v.title, status: 'deferred', code: null, note: `not started, deadline ${v.deadline}` } }];\n"
+      },
+      "id": "a272f8f0-95a3-5bc1-81e5-a68477af4bb9",
+      "name": "Deferred",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.baseUrl }}/summary/{{ $('Loop Videos').first().json.videoId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "id": "02d82be2-7257-553b-8e5f-ed45241aec53",
+      "name": "Summarize",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        780,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "TUaQfRSfr3pvaJJL",
+          "name": "youtube api service"
+        }
+      },
+      "notes": "One summary can take 1–6 minutes, long chunked videos up to 15. The service caches it and writes the Obsidian note itself.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Map the service's answer to a table status (docs/decisions.md 2026-09-23):\n// 200 done · 404 no_captions · 400/500 failed — all three final, cleared by hand;\n// 503, other codes (e.g. 401) or a failed request: retry next night, status stays empty.\nconst v = $('Loop Videos').first().json;\nconst r = $input.first().json;          // full HTTP response, or { error } if the request itself failed\nconst code = r.statusCode ?? 0;\nconst body = r.body ?? {};\nconst reason = (x) => String(x ?? '').slice(0, 300);\nconst day = $now.toISODate();\nlet status, note;\nif (r.error) { status = 'retry'; note = reason(r.error?.message ?? r.error); }\nelse if (code === 200) { status = 'done'; note = body.note?.fileName ? `note: ${body.note.fileName}` : `${body.strategy}, ${Math.round((body.durationMs ?? 0) / 1000)} s`; }\nelse if (code === 404) { status = 'no_captions'; note = reason(`${body.code ?? 404}: ${body.reason ?? ''}`); }\nelse if (code === 400 || code === 500) { status = 'failed'; note = reason(`${body.code ?? code}: ${body.reason ?? body.error ?? ''}`); }\nelse { status = 'retry'; note = reason(`${body.code ?? `http ${code}`}: ${body.reason ?? body.error ?? ''}`); }\nreturn [{ json: { videoId: v.videoId, title: v.title, status, code, cached: body.cached ?? null, note: `${day} ${note}` } }];\n"
+      },
+      "id": "06b0676a-e549-504c-b3a0-65af127580d6",
+      "name": "Classify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f89a660a-9891-5fa5-bb6c-2296ef6f11c3",
+              "leftValue": "={{ String(['done', 'no_captions', 'failed'].includes($json.status)) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "692dd008-2cda-5426-a517-edd8d84f1ed9",
+      "name": "Final?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.dataTableId }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "videoId",
+              "condition": "eq",
+              "keyValue": "={{ $json.videoId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "summaryStatus": "={{ $json.status }}",
+            "summaryNote": "={{ $json.note }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "summaryStatus",
+              "displayName": "summaryStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "summaryNote",
+              "displayName": "summaryNote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4173eedb-04e2-5157-b6e5-b95f69a5bc23",
+      "name": "Record Status",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        100
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Config').first().json.dataTableId }}"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "videoId",
+              "condition": "eq",
+              "keyValue": "={{ $json.videoId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "summaryNote": "={{ $json.note }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "summaryNote",
+              "displayName": "summaryNote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bdd2c9df-2a7c-5054-a264-cd7f8ee2783c",
+      "name": "Record Note",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        300
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Hand this video's outcome back to the loop (the update node outputs table rows, or\n// nothing when no row matched).\nreturn [{ json: $('Classify').first().json }];\n"
+      },
+      "id": "09b76264-b3b9-5033-b14c-d982f0ec5ca7",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst counts = {};\nfor (const i of items) counts[i.status] = (counts[i.status] ?? 0) + 1;\nconst attention = items.filter(i => i.status === 'failed' || i.status === 'retry')\n  .map(i => ({ videoId: i.videoId, title: i.title, status: i.status, note: i.note }));\nreturn [{ json: { processed: items.length, counts, attention } }];\n"
+      },
+      "id": "ae118624-86ba-5a33-9679-aa858786cf28",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Nightly 01:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health": {
+      "main": [
+        [
+          {
+            "node": "Service ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known Summaries": {
+      "main": [
+        [
+          {
+            "node": "Get Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Rows": {
+      "main": [
+        [
+          {
+            "node": "Already Summarised",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Summarised": {
+      "main": [
+        [
+          {
+            "node": "Mark Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan": {
+      "main": [
+        [
+          {
+            "node": "Loop Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deferred": {
+      "main": [
+        [
+          {
+            "node": "Loop Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify": {
+      "main": [
+        [
+          {
+            "node": "Final?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Status": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Note": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result": {
+      "main": [
+        [
+          {
+            "node": "Loop Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Service ready?": {
+      "main": [
+        [
+          {
+            "node": "Known Summaries",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Videos": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "In Time?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In Time?": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deferred",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final?": {
+      "main": [
+        [
+          {
+            "node": "Record Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Vienna"
+  },
+  "pinData": {}
+}
