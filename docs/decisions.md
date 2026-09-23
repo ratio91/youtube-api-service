@@ -403,3 +403,7 @@ writes to yt_inbox before the operator has seen the numbers.
   running summary — shared LLM queue working), second call 13 ms from cache. Only 1 of
   299 labelled videos has a summary yet (the backlog runs newest rows first), so the
   eval waits for the backlog.
+- Host fix applied (13:07 local): unit has `--cache-ram 2048`, running process carries
+  it, llama-server logs `prompt cache is enabled, size limit: 2048 MiB`, model loaded in
+  25 s, `/health` llm ok. A few summaries during the reload got `503 Loading model`
+  (retried next night).
