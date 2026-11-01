@@ -10,6 +10,7 @@ import { Summarizer } from './summaries/summarizer';
 import { SummaryStore } from './summaries/store';
 import { SummaryService } from './summaries/service';
 import { LlmQueue } from './llm/queue';
+import { ActivityTracker } from './activity';
 import { Classifier } from './classify/classifier';
 import { ClassificationStore } from './classify/store';
 import { ClassifyService } from './classify/service';
@@ -71,8 +72,11 @@ const summarizer = new Summarizer({
 const exporter = config.OBSIDIAN_EXPORT_DIR
   ? new ObsidianExporter({ dir: config.OBSIDIAN_EXPORT_DIR, tags: config.OBSIDIAN_TAGS.split(',').map((t) => t.trim()).filter(Boolean) })
   : undefined;
+// In-flight requests + LLM queue → /health `activity`, read by the host's idle check
+// (kept in the operator's private infra repo). A finished LLM task counts as activity.
+const activity = new ActivityTracker({ llmPending: () => llmQueue.pending });
 // One llama-server slot: summaries and classifications share one queue.
-const llmQueue = new LlmQueue();
+const llmQueue = new LlmQueue({ onSettle: () => activity.touch() });
 const summaries = new SummaryService({ transcripts, summarizer, store: summaryStore, exporter, summaryLanguages: config.SUMMARY_LANGUAGES, queue: llmQueue });
 const classificationStore = new ClassificationStore({ dir: config.CLASSIFY_CACHE_DIR });
 const classify = new ClassifyService({
@@ -91,10 +95,11 @@ const health = createHealthProvider({
   probeLlm,
   summaryStats: () => summaryStore.stats(),
   ...(exporter ? { notesStats: () => exporter.stats() } : {}),
+  activity: () => activity.snapshot(),
   oauthCacheMs: config.HEALTH_OAUTH_CACHE_MS,
 });
 
-const app = createApp({ youtube, transcripts, summaries, classify, notes: exporter ?? null, health });
+const app = createApp({ youtube, transcripts, summaries, classify, notes: exporter ?? null, health, activity });
 
 async function main() {
   const t = await probeTranscripts(); // populates lastProbe before the first fetch is cached

@@ -188,6 +188,7 @@ so a broken transcript backend shows up in monitoring without flapping the conta
 | `cache` | object | `{ dir, files, sizeBytes, writable, error? }` for the transcript cache, recomputed at most once a minute. `writable: false` means fetches still work but nothing is stored (check directory ownership). |
 | `llm` | object | `{ ok, baseUrl, model, contextTokens, build, error? }` from a probe of the LLM's `/v1/models` (and llama-server `/props`), cached one minute. Does **not** affect `status`. |
 | `summaryCache` | object | Same shape as `cache`, for `SUMMARY_CACHE_DIR` |
+| `activity` | object | `{ inFlight, llmPending, lastActivityAt, idleSeconds }`, live: requests being handled (`/health` itself excluded), LLM tasks queued or running (they outlive a disconnected client), and the time since the last request or LLM task ended (since process start before the first). Meant for a host-side idle check that suspends the machine when `inFlight` and `llmPending` are 0 and `idleSeconds` is large enough. |
 | `authorized` | boolean | Legacy field: `true` only when `oauth` is `ok` |
 
 ### Transcripts

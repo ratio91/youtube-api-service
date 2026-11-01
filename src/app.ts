@@ -4,6 +4,7 @@ import { YouTubeService } from './youtube';
 import { basicAuth } from './auth';
 import { config } from './config';
 import { HealthReport } from './health';
+import type { ActivityTracker } from './activity';
 import { TranscriptService, TranscriptFormat } from './transcripts/service';
 import { SummaryService, summaryErrorResponse } from './summaries/service';
 import { ClassifyService, isNoSummaryError } from './classify/service';
@@ -25,6 +26,8 @@ export interface AppDeps {
   /** notes in the Obsidian inbox; null → /notes answers 503 (export disabled) */
   notes?: { listNotes(): Promise<NoteEntry[]> } | null;
   health: () => Promise<HealthReport>;
+  /** counts in-flight requests for /health's `activity` (idle check on the host) */
+  activity?: ActivityTracker;
   batchMax?: number;
 }
 
@@ -85,6 +88,7 @@ export function createApp(deps: AppDeps) {
   const app = express();
   const batchMax = deps.batchMax ?? config.TRANSCRIPT_BATCH_MAX;
 
+  if (deps.activity) app.use(deps.activity.middleware());
   app.use(express.json({ limit: '256kb' }));
 
   // Health check endpoint (no auth required). Always HTTP 200; `status` says degraded.

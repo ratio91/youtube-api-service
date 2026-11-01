@@ -1,6 +1,7 @@
 import { OAuthCheck, YouTubeService } from './youtube';
 import { CacheStats } from './transcripts/cache';
 import { LlmProbe } from './llm/client';
+import type { ActivitySnapshot } from './activity';
 
 export interface TranscriptsHealth {
   backend: 'yt-dlp';
@@ -29,6 +30,8 @@ export interface HealthReport {
   summaryCache: CacheStats | null;
   /** Obsidian note export directory; null when export is disabled */
   notes: CacheStats | null;
+  /** in-flight work and idle time, read by the host's idle check; null when not tracked */
+  activity: ActivitySnapshot | null;
   /** legacy field (pre-2026-09): true only when oauth === "ok" */
   authorized: boolean;
   timestamp: string;
@@ -45,6 +48,8 @@ export interface HealthDeps {
   /** already memoised by SummaryStore.stats() */
   summaryStats?: () => Promise<CacheStats>;
   notesStats?: () => Promise<CacheStats>;
+  /** live, never cached: the idle check must see the current state */
+  activity?: () => ActivitySnapshot;
   oauthCacheMs: number;
   /** re-probe interval for a failing transcript backend */
   transcriptsRecheckMs?: number;
@@ -120,6 +125,7 @@ export function createHealthProvider(deps: HealthDeps): () => Promise<HealthRepo
       llm,
       summaryCache,
       notes,
+      activity: deps.activity ? deps.activity() : null,
       authorized: oauth?.status === 'ok',
       timestamp: new Date().toISOString(),
     };

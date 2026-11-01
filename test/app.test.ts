@@ -85,6 +85,7 @@ const HEALTH_OK: HealthReport = {
   llm: { ok: true, baseUrl: 'http://host.docker.internal:8000/v1', model: 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf', contextTokens: 65536, build: 'b9598' },
   summaryCache: { dir: '/data/summaries', files: 1, sizeBytes: 2048, writable: true },
   notes: { dir: '/data/obsidian-inbox', files: 1, sizeBytes: 4096, writable: true },
+  activity: { inFlight: 0, llmPending: 0, lastActivityAt: '2026-09-22T00:00:00.000Z', idleSeconds: 0 },
   authorized: true,
   timestamp: '2026-09-22T00:00:00.000Z',
 };
