@@ -559,3 +559,8 @@ expected reasons (open session, no activity field, recent resume).
 Host-specific files (idle script, systemd units, config, Wake-on-LAN relay notes) live in
 the operator's private infra repo, not here: this repo is public and only the operator
 runs this machine setup. The public part is the generic `/health` `activity` field.
+- Deployed `b46330b` (11:09 local, before the noon window, nothing running). Startup: all
+  stores ready. `/health`: status ok, `llm.ok`, `activity` present; only `/health` calls in
+  between left `lastActivityAt` unchanged (idleSeconds 9 → 11), an authenticated cached
+  `/summary` (200) reset it to 0 with `inFlight` back to 0. The host's idle check, run
+  read-only against the new build: `stay` (an open SSH session, idle 10 s < 1200 s), LLM idle.
