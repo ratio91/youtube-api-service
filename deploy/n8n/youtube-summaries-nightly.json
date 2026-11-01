@@ -969,6 +969,133 @@
         -1200,
         660
       ]
+    },
+    {
+      "parameters": {
+        "resource": "command",
+        "operation": "execute",
+        "authentication": "privateKey",
+        "command": "wake",
+        "cwd": "/"
+      },
+      "id": "cbbde588-26bf-4186-899d-a6b1010fc9be",
+      "name": "Wake (via LAN relay)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        900
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "SSH to a relay on the LAN whose key only runs wakeonlan (forced command); the command text is ignored. Remove this node and Wait/Wake Check/Awake?/Try again? (connect Config → Health) if the machine never sleeps.",
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "MIn5TbfhEyTAi1PR",
+          "name": "SSH Private Key account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "id": "8905e0de-b1cd-4490-97b1-ed54606912e7",
+      "name": "Wait 10s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -760,
+        900
+      ],
+      "webhookId": "bbdc620a-9060-4bb5-a6bf-a71478271951"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.baseUrl }}/health",
+        "options": {
+          "timeout": 5000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "2a4d1519-1292-4bbb-b7c8-c702195ed52e",
+      "name": "Wake Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -540,
+        900
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a1c0e7d2-5b1e-4c55-9b0a-77e0c0a10001",
+              "leftValue": "={{ String($json.status === 'ok' && $json.llm?.ok === true) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9bad1718-b35f-4fe9-9eea-a00b49a5d5fe",
+      "name": "Awake?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -320,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a1c0e7d2-5b1e-4c55-9b0a-77e0c0a10002",
+              "leftValue": "={{ String($runIndex < 11) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "084f19bf-4bec-4fd3-b7de-c348d5fe9cb1",
+      "name": "Try again?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -100,
+        1000
+      ]
     }
   ],
   "connections": {
@@ -976,7 +1103,7 @@
       "main": [
         [
           {
-            "node": "Health",
+            "node": "Wake (via LAN relay)",
             "type": "main",
             "index": 0
           }
@@ -1322,6 +1449,75 @@
         [
           {
             "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wake (via LAN relay)": {
+      "main": [
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10s": {
+      "main": [
+        [
+          {
+            "node": "Wake Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wake Check": {
+      "main": [
+        [
+          {
+            "node": "Awake?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Awake?": {
+      "main": [
+        [
+          {
+            "node": "Health",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Try again?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Try again?": {
+      "main": [
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health",
             "type": "main",
             "index": 0
           }

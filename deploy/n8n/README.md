@@ -6,7 +6,12 @@ that turns every video known to an n8n **Data Table** into an Obsidian note via 
 service, whether the video is still in the inbox playlist or already sorted out of it.
 
 ```
-Noon 12:00 → Config → Health → Service ready? ─no→ Not ready (stop)
+Noon 12:00 → Config → Wake (via LAN relay) → Wait 10s → Wake Check → Awake? ─yes─┐
+                                     ▲                          │no         │
+                                     └──── Try again? (≤12×) ◄──┘           │
+                                                │no (gave up)               │
+                                                ▼                           ▼
+                                   Health → Service ready? ─no→ Not ready (stop)
                                          │yes
                                          ▼
   Known Summaries (GET /summaries) → Get Notes (GET /notes) → Get Playlists (taxonomy table)
@@ -92,7 +97,13 @@ value).
    credential with the service's `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` (the file references
    the credential of the instance it was built on; on another instance re-select it).
 5. Times use the workflow timezone (*Settings → Timezone*, preset to `Europe/Vienna`).
-6. Run once manually, then activate. One schedule trigger starts the window
+6. **Wake step** (optional): if the LLM machine sleeps, **Wake (via LAN relay)** runs an SSH
+   command on a host in its LAN whose key may only run `wakeonlan` (forced command in
+   `authorized_keys`), then **Wake Check** polls `/health` every 10 s, up to 12 times
+   (~2 min). An SSH error does not stop the run; if the machine never answers, the
+   normal Health → Not ready path skips the run. Needs an *SSH Private Key* credential.
+   Without a sleeping machine, delete the five wake nodes and connect Config → Health.
+7. Run once manually, then activate. One schedule trigger starts the window
    12:00–15:00 (workflow timezone): the LLM machine sleeps otherwise and is woken once a
    day, at noon, when solar power is highest. Add triggers (and `stopAt` ends) for more
    windows.

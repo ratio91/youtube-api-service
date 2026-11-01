@@ -564,3 +564,20 @@ runs this machine setup. The public part is the generic `/health` `activity` fie
   between left `lastActivityAt` unchanged (idleSeconds 9 → 11), an authenticated cached
   `/summary` (200) reset it to 0 with `inFlight` back to 0. The host's idle check, run
   read-only against the new build: `stay` (an open SSH session, idle 10 s < 1200 s), LLM idle.
+
+## 2026-11-01 — Stage 4: wake step live in the noon workflow; deviation: half a day of log mode
+
+Operator wants the machine asleep from tonight, so the planned full day in `log` mode is
+cut to ~7 h (explicit deviation). Log review 11:10–18:26 (81 checks): `would_suspend`
+from 11:31, `stay` after the 12:00 run's requests until 12:20, then `would_suspend` until
+the end; an SSH session held across the 11:15 check was counted (`sessions: 2`). Open:
+the very first check (11:10, triggered by `enable --now` inside the install session)
+reported `sessions: 0`; not reproduced since.
+Live workflow: Config → Wake (via LAN relay) → Wait 10s → Wake Check → Awake? → Health,
+with Try again? looping up to 12 polls; give-up and SSH errors fall through to the existing
+Health → Not ready path. Tested before publishing: a manual run of the draft (awake
+machine) sent the packet via the relay (exit 0) and finished normally in 11.4 s; a pinned
+test with the wake check always failing looped 12× (10 s apart) and ended in Not ready
+("service unreachable") after 2:00 min. Published as `aee3c2fd`, then `7bf44897` (node
+renamed so no host name appears in the public repo file). Repo JSON and n8n README mirror it.
+Switch-on (operator, tonight): `IDLE_SUSPEND=on` in the host's config.
