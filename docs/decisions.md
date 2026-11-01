@@ -581,3 +581,7 @@ test with the wake check always failing looped 12× (10 s apart) and ended in No
 ("service unreachable") after 2:00 min. Published as `aee3c2fd`, then `7bf44897` (node
 renamed so no host name appears in the public repo file). Repo JSON and n8n README mirror it.
 Switch-on (operator, tonight): `IDLE_SUSPEND=on` in the host's config.
+- Switched on 2026-11-01 ~19:45. The first check in `on` mode (19:47:45) suspended the machine:
+  at 19:48:43 its SSH port was closed over the tailnet and it no longer answered ping on
+  the LAN (both answered at 19:47:22). Hardware-sleep proof (`last_hw_sleep`, the journal
+  line) follows after the next wake, which is due at the noon run of 2026-11-02.
