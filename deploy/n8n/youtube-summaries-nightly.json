@@ -3,28 +3,6 @@
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 1,
-              "triggerAtMinute": 0
-            }
-          ]
-        }
-      },
-      "id": "874167fa-9d39-5d3c-9646-341b6d4b7eae",
-      "name": "Nightly 01:00",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.3,
-      "position": [
-        -1200,
-        300
-      ]
-    },
-    {
-      "parameters": {
         "assignments": {
           "assignments": [
             {
@@ -48,13 +26,13 @@
             {
               "id": "b9238b55-8e33-564c-af1e-8da287be965a",
               "name": "stopAt",
-              "value": "06:30,16:30,23:30",
+              "value": "15:00",
               "type": "string"
             },
             {
               "id": "ccadc562-b07d-5e2f-af41-f5b9d5da5636",
               "name": "maxRunMinutes",
-              "value": 330,
+              "value": 180,
               "type": "number"
             },
             {
@@ -874,28 +852,6 @@
     },
     {
       "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 18,
-              "triggerAtMinute": 0
-            }
-          ]
-        }
-      },
-      "id": "3f0b9f4e-7c1d-4e8a-9b2f-18000000e001",
-      "name": "Evening 18:00",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.3,
-      "position": [
-        -1200,
-        500
-      ]
-    },
-    {
-      "parameters": {
         "url": "={{ $('Config').first().json.baseUrl }}/notes",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
@@ -999,14 +955,14 @@
             {
               "field": "days",
               "daysInterval": 1,
-              "triggerAtHour": 7,
+              "triggerAtHour": 12,
               "triggerAtMinute": 0
             }
           ]
         }
       },
       "id": "5a2b1858-8d5b-5e45-aa55-0101a3435014",
-      "name": "Daytime 07:00",
+      "name": "Noon 12:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
       "position": [
@@ -1016,17 +972,6 @@
     }
   ],
   "connections": {
-    "Nightly 01:00": {
-      "main": [
-        [
-          {
-            "node": "Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Config": {
       "main": [
         [
@@ -1350,17 +1295,6 @@
         ]
       ]
     },
-    "Evening 18:00": {
-      "main": [
-        [
-          {
-            "node": "Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Get Notes": {
       "main": [
         [
@@ -1383,7 +1317,7 @@
         ]
       ]
     },
-    "Daytime 07:00": {
+    "Noon 12:00": {
       "main": [
         [
           {

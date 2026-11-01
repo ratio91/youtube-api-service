@@ -466,3 +466,34 @@ merged into the repo file.
   the MCP read-out, so Get Notes' Basic Auth is confirmed only by the first run's
   `/notes` status (a 401 would mark nothing). Running manual execution #43 keeps the old
   version and starts videos until ~19:12, overlapping the 18:00 trigger once.
+
+## 2026-11-01 — Home machine sleeps when idle, wakes via Wake-on-LAN (operator)
+
+Field findings (read-only): the home machine offers only `s2idle` (`/sys/power/mem_sleep`,
+no S3 "deep"); hibernation is disabled (Secure Boot lockdown). Wired Realtek NIC
+(r8169) with device wakeup `disabled` and the NetworkManager profile on
+`wake-on-lan=default`; the NIC's PCIe root port is ACPI-wake-enabled for S0. No suspend
+in the last 30 days. The VPS cannot send a magic packet itself (L2 broadcast; the tailnet
+carries no broadcast), so a LAN host has to relay it.
+Operator decisions:
+- Idle mode is suspend (s2idle), not shutdown: RAM and the loaded LLM survive, wake in seconds.
+- Only login/SSH sessions, llama-server work and youtube-api requests keep the machine
+  awake; the operator's other apps on it do not.
+- The relay is the Proxmox host on the same LAN: a dedicated user whose SSH key can only
+  run `wakeonlan` (forced command). n8n wakes the machine before its health check.
+Staged rollout: (1) manual suspend + wake ×3 with the operator at the machine, LLM
+inference after each resume; (2) relay user + key; (3) idle check as a systemd timer,
+flag default off, one day log-only; (4) wake step in the live n8n workflow (operator OK);
+(5) suspend on, one full day of all three windows observed.
+
+## 2026-11-01 — One LLM window per day, 12:00–15:00 (operator, applied live in n8n)
+
+The home machine is to wake at most once a day, at noon (most solar power), and never at
+night. The backlog is gone: the last runs ended within a second with nothing to do, so
+three hours a day are enough. Live workflow: removed the 01:00 and 18:00 triggers, moved
+07:00 to 12:00 ("Noon 12:00"), `stopAt` `15:00`, `maxRunMinutes` 180; published as version
+`b7d53088` (supersedes the three windows of 2026-09-23). The unpublished autosaved draft
+it was built on only dropped default-valued parameters (diffed before publishing). Repo
+file and n8n README mirror it. The sort job (daily 10:00) only calls YouTube and the data
+table, never the home machine. No wake step yet: until the relay exists the machine stays
+awake by default; a noon run that finds it asleep is skipped by the health gate.

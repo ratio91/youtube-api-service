@@ -6,9 +6,8 @@ that turns every video known to an n8n **Data Table** into an Obsidian note via 
 service, whether the video is still in the inbox playlist or already sorted out of it.
 
 ```
-Nightly 01:00 ┐
-Daytime 07:00 ├→ Config → Health → Service ready? ─no→ Not ready (stop)
-Evening 18:00 ┘                          │yes
+Noon 12:00 → Config → Health → Service ready? ─no→ Not ready (stop)
+                                         │yes
                                          ▼
   Known Summaries (GET /summaries) → Get Notes (GET /notes) → Get Playlists (taxonomy table)
                                        ▼
@@ -81,10 +80,11 @@ value).
    - `baseUrl`: the service on your tailnet, e.g. `http://<home-machine tailscale ip>:3000`
    - `dataTableId`: the video table's ID (from its URL)
    - `playlistsTableId`: the taxonomy table's ID
-   - `stopAt` (default `06:30,16:30,23:30`): the ends of the LLM windows. A run's
-     deadline is the next end after its start, and no new video starts after it. One
-     video takes at most ~15 minutes, so each run ends well before the next trigger
-   - `maxRunMinutes` (default 330): fallback budget for a run started after the last
+   - `stopAt` (default `15:00`): the end of the LLM window; a comma list
+     (e.g. `06:30,16:30`) is accepted for several windows. A run's deadline is the next
+     end after its start, and no new video starts after it. One video takes at most
+     ~15 minutes, so a run ends shortly after the deadline
+   - `maxRunMinutes` (default 180): fallback budget for a run started after the last
      end of the day, e.g. a late manual run
    - `maxPerRun` (default 250): caps summaries per run, as a safety net; the deadline
      normally ends the run. Suggestion-only items are not capped (seconds each).
@@ -92,9 +92,10 @@ value).
    credential with the service's `BASIC_AUTH_USER`/`BASIC_AUTH_PASS` (the file references
    the credential of the instance it was built on; on another instance re-select it).
 5. Times use the workflow timezone (*Settings → Timezone*, preset to `Europe/Vienna`).
-6. Run once manually, then activate. Three schedule triggers start the windows
-   01:00–06:30, 07:00–16:30 and 18:00–23:30 (workflow timezone); remove the daytime
-   trigger if the LLM machine must stay free during the day.
+6. Run once manually, then activate. One schedule trigger starts the window
+   12:00–15:00 (workflow timezone): the LLM machine sleeps otherwise and is woken once a
+   day, at noon, when solar power is highest. Add triggers (and `stopAt` ends) for more
+   windows.
 
 ## Outcomes
 
