@@ -497,3 +497,24 @@ it was built on only dropped default-valued parameters (diffed before publishing
 file and n8n README mirror it. The sort job (daily 10:00) only calls YouTube and the data
 table, never the home machine. No wake step yet: until the relay exists the machine stays
 awake by default; a noon run that finds it asleep is skipped by the health gate.
+
+## 2026-11-01 — Syncthing side-car: tailnet only; idle extras removed (operator)
+
+Syncthing check: both sides hold the same 627 notes, folder idle, peer at 100 %, no
+errors; the suspend/wake tests only dropped a secondary connection. The side-car now
+reaches the VPS only at its tailnet address (no `dynamic`) with global/local discovery,
+relays and NAT traversal off (REST PATCH, read back, no restart needed; config backup kept
+next to `config.xml`). Afterwards both connections run over the tailnet. On the home
+machine the operator also stopped two leftover dev servers, removed a dead `@reboot`
+crontab line and disabled bluetooth, ModemManager, cups and avahi (incl. sockets).
+
+## 2026-11-01 — Gate: stage 1 (manual suspend + Wake-on-LAN) passed, 3/3
+
+Three suspends, each woken by a magic packet from the LAN relay 30 s after the machine
+went silent. Every run: kernel `suspend entry (s2idle)` with hardware sleep for ~all of
+it (`last_hw_sleep` 30.4 s / 45.5 s / 30.8 s); LAN answer after 4.0–4.2 s, tailnet and
+`/health` ok (`llm.ok`) after 9.1–9.3 s; a real llama-server completion right after resume
+(26–31 tok/s, no Vulkan errors); containers healthy; NIC wakeup still `enabled`; Syncthing
+back on the tailnet with the folder at 100 %. Each suspend first logs an immediate
+`suspend entry (deep)` / `exit` pair before the s2idle entry — identical all three times,
+no effect. Next: stage 2, the relay user with a forced-command key.
